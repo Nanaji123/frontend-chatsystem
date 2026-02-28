@@ -43,6 +43,11 @@ export default function LoginPage() {
       console.log("Full Login Response:", JSON.stringify(data, null, 2))
 
       if (data && data.success) {
+        // We capture the token for the socket handshake (middleware expects it in auth.token)
+        const token = data.token || data.accessToken || data.jwt || (data.data && (data.data.token || data.data.accessToken));
+        if (token) {
+          localStorage.setItem('token', token)
+        }
         setSuccess('Login successful! Redirecting...')
         setTimeout(() => {
           router.push('/home')
