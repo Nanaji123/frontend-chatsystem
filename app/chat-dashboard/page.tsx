@@ -4,18 +4,18 @@ import React, { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import io from 'socket.io-client'
 import {
-    MessageSquare, Send, User, Settings, LogOut, ArrowLeft,
+    MessageSquare, Send, User, Users, Settings, LogOut, ArrowLeft,
     Search, Plus, Hash, Bell, MoreVertical, Paperclip, Smile,
     Activity, Globe, Shield, Lock, ShieldCheck, Loader2, Trash2,
-    Check
+    Check, X
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { getMe, logoutUser } from '@/backend/login'
 import {
-    searchUsers, getChats, createChat, deleteChat, getMessages
+    searchUsers, getChats, createChat, deleteChat, getMessages, createGroupChat, getChatDetails
 } from '@/backend/chat'
 
-const SOCKET_URL = "http://localhost:3000"
+const SOCKET_URL = "http://localhost:3001"
 
 export default function ChatDashboard() {
     const router = useRouter()
@@ -30,12 +30,31 @@ export default function ChatDashboard() {
     const [searchTerm, setSearchTerm] = useState('')
     const [searchResults, setSearchResults] = useState<any[]>([])
     const [isSearching, setIsSearching] = useState(false)
+    const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({})
+    // Group chat modal state
+    const [showGroupModal, setShowGroupModal] = useState(false)
+    const [groupName, setGroupName] = useState('')
+    const [groupUserSearch, setGroupUserSearch] = useState('')
+    const [groupUserResults, setGroupUserResults] = useState<any[]>([])
+    const [selectedGroupUsers, setSelectedGroupUsers] = useState<any[]>([])
+    const [groupProfilePic, setGroupProfilePic] = useState('')
+    const [groupFile, setGroupFile] = useState<File | null>(null)
+    const [creatingGroup, setCreatingGroup] = useState(false)
+    // Chat Details Modal state
+    const [showDetailsModal, setShowDetailsModal] = useState(false)
+    const [chatDetails, setChatDetails] = useState<any>(null)
+    const [detailsLoading, setDetailsLoading] = useState(false)
     const scrollRef = useRef<HTMLDivElement>(null)
     const activeChatRef = useRef<any>(null)
+    const userRef = useRef<any>(null)
 
     useEffect(() => {
         activeChatRef.current = activeChat
     }, [activeChat])
+
+    useEffect(() => {
+        userRef.current = user
+    }, [user])
 
     useEffect(() => {
         fetchInitialData()
@@ -82,20 +101,29 @@ export default function ChatDashboard() {
         })
 
         newSocket.on('receive_message', (fullMessage: any) => {
-            // Check if message belongs to active chat
+            // Normalize raw Mongoose doc
+            const chatId = fullMessage._doc?.chat || fullMessage.chat
+            const msg = fullMessage._doc
+                ? { ...fullMessage._doc, isMine: fullMessage.isMine }
+                : { ...fullMessage, isMine: fullMessage.isMine ?? (fullMessage.sender?._id?.toString() === userRef.current?._id?.toString()) }
+
             setMessages((prev) => {
-                // Avoid duplication if the message is already there (e.g. from local update)
-                if (prev.find(m => m._id === fullMessage._id)) return prev;
-                return [...prev, fullMessage]
+                if (prev.find(m => m._id === msg._id)) return prev;
+                return [...prev, msg]
             })
 
-            // Also update the latest message in the chats list
+            // Update latest message preview in sidebar
             setChats(prevChats => prevChats.map(c => {
-                if (c._id === fullMessage.chat) {
-                    return { ...c, latestMessage: fullMessage }
+                if (c._id === chatId) {
+                    return { ...c, latestMessage: msg }
                 }
                 return c
             }))
+
+            // Increment unread badge if this chat is not currently open
+            if (activeChatRef.current?._id !== chatId) {
+                setUnreadCounts(prev => ({ ...prev, [chatId]: (prev[chatId] || 0) + 1 }))
+            }
         })
 
         newSocket.on('typing', () => {
@@ -162,16 +190,19 @@ export default function ChatDashboard() {
         }
     }
 
-    const startChat = async (userId: string) => {
+    const startChat = async (userId: string, otherUserObj?: any) => {
         try {
             const data = await createChat(userId)
             if (data.success) {
-                // Add to chats if not already there
+                // Inject otherUser so getChatName/getChatAvatar work immediately
+                const chatWithUser = otherUserObj
+                    ? { ...data.chat, otherUser: otherUserObj }
+                    : data.chat
                 const exists = chats.find(c => c._id === data.chat._id)
                 if (!exists) {
-                    setChats([data.chat, ...chats])
+                    setChats([chatWithUser, ...chats])
                 }
-                setActiveChat(data.chat)
+                setActiveChat(chatWithUser)
                 setSearchTerm('')
                 setSearchResults([])
             }
@@ -214,15 +245,81 @@ export default function ChatDashboard() {
         }
     }
 
+    const searchGroupUsers = async (term: string) => {
+        if (!term.trim()) { setGroupUserResults([]); return }
+        try {
+            const data = await searchUsers(term)
+            if (data.success) setGroupUserResults(data.users)
+        } catch { }
+    }
+
+    const toggleGroupUser = (u: any) => {
+        setSelectedGroupUsers(prev =>
+            prev.find(x => x._id === u._id)
+                ? prev.filter(x => x._id !== u._id)
+                : [...prev, u]
+        )
+    }
+
+    const handleCreateGroup = async () => {
+        if (!groupName.trim() || selectedGroupUsers.length < 2) return
+        setCreatingGroup(true)
+        try {
+            const formData = new FormData()
+            formData.append('groupName', groupName.trim())
+            console.log("group name", groupName);
+            formData.append('users', JSON.stringify(selectedGroupUsers.map(u => u._id)))
+            console.log("selected users", selectedGroupUsers);
+            if (groupFile) {
+                formData.append('image', groupFile)
+            } else if (groupProfilePic.trim()) {
+                formData.append('chat_profile_picture', groupProfilePic.trim())
+            }
+            console.log("FormData Contents:", [...formData.entries()]);
+            const data = await createGroupChat(formData)
+            if (data.success) {
+                setChats(prev => [data.chat, ...prev])
+                setActiveChat(data.chat)
+                setShowGroupModal(false)
+                setGroupName('')
+                setGroupProfilePic('')
+                setGroupFile(null)
+                setSelectedGroupUsers([])
+                setGroupUserSearch('')
+                setGroupUserResults([])
+            }
+        } catch (err) {
+            console.error('Error creating group:', err)
+        } finally {
+            setCreatingGroup(false)
+        }
+    }
+
+    const fetchChatDetails = async () => {
+        if (!activeChat) return
+        setDetailsLoading(true)
+        setShowDetailsModal(true)
+        try {
+            const data = await getChatDetails(activeChat._id)
+            if (data.success) {
+                setChatDetails(data.chat)
+            }
+        } catch (err) {
+            console.error("Error fetching chat details:", err)
+        } finally {
+            setDetailsLoading(false)
+        }
+    }
+
     const getChatName = (chat: any) => {
-        if (chat.isGroupChat) return chat.shortName || chat.chatName
+        if (chat.isGroupChat) return chat.groupName || chat.chatName || 'Group Chat'
         if (chat.otherUser) return chat.otherUser.username
         const otherUser = chat.users?.find((u: any) => u._id.toString() !== user?._id?.toString())
         return otherUser?.username || chat.chatName || "Individual Chat"
     }
 
     const getChatAvatar = (chat: any) => {
-        if (chat.isGroupChat) return null
+        if (chat.isGroupChat) return chat.chat_profile_picture || null
         if (chat.otherUser) return chat.otherUser.profile_picture
         const otherUser = chat.users?.find((u: any) => u._id.toString() !== user?._id?.toString())
         return otherUser?.profile_picture
@@ -230,273 +327,546 @@ export default function ChatDashboard() {
 
     if (loading) {
         return (
-            <div className="min-h-screen bg-[#0a0a0b] flex flex-col items-center justify-center text-white">
-                <Loader2 className="w-12 h-12 animate-spin text-blue-500 mb-4" />
-                <p className="text-gray-400 animate-pulse">Initializing your secure dashboard...</p>
+            <div className="min-h-screen flex items-center justify-center" style={{ background: '#0a0a0b' }}>
+                <Loader2 className="w-10 h-10 animate-spin" style={{ color: '#3b82f6' }} />
             </div>
         )
     }
 
     return (
-        <div className="flex h-screen bg-[#0a0a0b] text-white overflow-hidden font-sans">
-            {/* Sidebar */}
-            <aside className="w-80 border-r border-white/5 bg-black/40 backdrop-blur-2xl flex flex-col h-full relative z-20">
-                <div className="p-6 border-b border-white/5">
-                    <div className="flex items-center gap-3 mb-6">
-                        <div className="w-10 h-10 bg-gradient-to-tr from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/20">
-                            <Globe className="w-6 h-6 text-white" />
+        <>
+            <div className="flex h-screen overflow-hidden" style={{ background: '#0a0a0b', fontFamily: "'Segoe UI', sans-serif" }}>
+
+                {/* ─── LEFT SIDEBAR ─── */}
+                <aside style={{ width: 360, minWidth: 360, background: 'rgba(0,0,0,0.5)', display: 'flex', flexDirection: 'column', borderRight: '1px solid rgba(255,255,255,0.05)' }}>
+
+                    <div style={{ padding: '10px 16px', background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: 60, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{ width: 40, height: 40, borderRadius: '50%', overflow: 'hidden', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                                {user?.profile_picture
+                                    ? <img src={user.profile_picture} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    : <User size={20} color="#6b7280" />}
+                            </div>
+                            <span style={{ color: '#fff', fontWeight: 600, fontSize: 15 }}>{user?.username}</span>
                         </div>
-                        <span className="font-bold text-xl tracking-tight">AETHER</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <button onClick={() => setShowGroupModal(true)}
+                                title="Create new group"
+                                style={{ background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: '#60a5fa', display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, fontWeight: 600 }}
+                                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(59,130,246,0.28)')}
+                                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(59,130,246,0.15)')}>
+                                <Users size={14} /> New Group
+                            </button>
+                            <button onClick={() => router.push('/home')} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 8, borderRadius: 8, color: '#6b7280' }} title="Back to home">
+                                <ArrowLeft size={20} />
+                            </button>
+                        </div>
                     </div>
 
-                    <div className="relative">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                        <input
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            placeholder="Search users..."
-                            className="w-full bg-white/5 border border-white/5 rounded-xl py-2.5 pl-10 pr-4 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500/50"
-                        />
-                        {isSearching && (
-                            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-blue-500 animate-spin" />
+                    {/* Search bar */}
+                    <div style={{ padding: '8px 12px', background: 'rgba(0,0,0,0.2)' }}>
+                        <div style={{ background: 'rgba(255,255,255,0.05)', borderRadius: 12, border: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', padding: '8px 12px', gap: 8 }}>
+                            <Search size={16} color="#6b7280" />
+                            <input
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                placeholder="Search or start new chat"
+                                style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 14 }}
+                            />
+                            {isSearching && <Loader2 size={14} color="#3b82f6" className="animate-spin" />}
+                        </div>
+                    </div>
+
+                    {/* Search results dropdown */}
+                    {searchResults.length > 0 && (
+                        <div style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                            <p style={{ padding: '8px 16px', fontSize: 11, color: '#60a5fa', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Start a chat</p>
+                            {searchResults.map((u) => (
+                                <button key={u._id} onClick={() => startChat(u._id, u)}
+                                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}
+                                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.05)')}
+                                    onMouseLeave={e => (e.currentTarget.style.background = 'none')}>
+                                    <div style={{ width: 40, height: 40, borderRadius: '50%', overflow: 'hidden', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        {u.profile_picture ? <img src={u.profile_picture} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <User size={18} color="#6b7280" />}
+                                    </div>
+                                    <div>
+                                        <p style={{ color: '#fff', fontSize: 15, fontWeight: 500 }}>{u.username}</p>
+                                        <p style={{ color: '#6b7280', fontSize: 13 }}>{u.email}</p>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Chat list */}
+                    <div style={{ flex: 1, overflowY: 'auto' }}>
+                        {chats.filter(c => !c.isGroupChat).length === 0 && chats.filter(c => c.isGroupChat).length === 0 ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#6b7280', gap: 8 }}>
+                                <MessageSquare size={40} />
+                                <p style={{ fontSize: 14 }}>No chats yet. Search for someone!</p>
+                            </div>
+                        ) : (
+                            [...chats.filter(c => !c.isGroupChat), ...chats.filter(c => c.isGroupChat)].map((chat, idx, arr) => {
+                                const isActive = activeChat?._id === chat._id
+                                const isFirstGroup = chat.isGroupChat && (idx === 0 || !arr[idx - 1]?.isGroupChat)
+                                const isFirstIndividual = !chat.isGroupChat && idx === 0
+                                return (
+                                    <div key={chat._id}>
+                                        {isFirstIndividual && chats.filter(c => !c.isGroupChat).length > 0 && (
+                                            <p style={{ padding: '10px 16px 4px', fontSize: 11, fontWeight: 700, color: '#60a5fa', textTransform: 'uppercase', letterSpacing: '0.10em' }}>Chats</p>
+                                        )}
+                                        {isFirstGroup && (
+                                            <p style={{ padding: '12px 16px 4px', fontSize: 11, fontWeight: 700, color: '#a78bfa', textTransform: 'uppercase', letterSpacing: '0.10em' }}>Group Chats</p>
+                                        )}
+                                        <div style={{ position: 'relative' }}
+                                            onMouseEnter={e => { if (!isActive) (e.currentTarget.querySelector('.chat-row') as HTMLElement)!.style.background = 'rgba(255,255,255,0.05)' }}
+                                            onMouseLeave={e => { if (!isActive) (e.currentTarget.querySelector('.chat-row') as HTMLElement)!.style.background = 'transparent' }}>
+                                            <button className="chat-row" onClick={() => {
+                                                setActiveChat(chat)
+                                                setUnreadCounts(prev => ({ ...prev, [chat._id]: 0 }))
+                                            }}
+                                                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', background: isActive ? (chat.isGroupChat ? 'rgba(167,139,250,0.08)' : 'rgba(59,130,246,0.08)') : 'transparent', border: 'none', borderBottom: '1px solid rgba(255,255,255,0.04)', cursor: 'pointer', textAlign: 'left' }}>
+                                                <div style={{ width: 46, height: 46, borderRadius: '50%', overflow: 'hidden', background: chat.isGroupChat ? 'rgba(167,139,250,0.15)' : 'rgba(255,255,255,0.05)', border: `1px solid ${chat.isGroupChat ? 'rgba(167,139,250,0.3)' : 'rgba(255,255,255,0.08)'}`, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    {getChatAvatar(chat)
+                                                        ? <img src={getChatAvatar(chat)!} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                        : (chat.isGroupChat ? <Users size={22} color="#a78bfa" /> : <User size={22} color="#6b7280" />)}
+                                                </div>
+                                                <div style={{ flex: 1, minWidth: 0 }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                        <span style={{ color: isActive ? (chat.isGroupChat ? '#a78bfa' : '#60a5fa') : '#e9edef', fontSize: 15, fontWeight: unreadCounts[chat._id] ? 700 : 600 }}>{getChatName(chat)}</span>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                            {chat.latestMessage && (
+                                                                <span style={{ color: unreadCounts[chat._id] ? '#22c55e' : '#6b7280', fontSize: 11 }}>
+                                                                    {new Date(chat.latestMessage.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                                </span>
+                                                            )}
+                                                            {!!unreadCounts[chat._id] && (
+                                                                <span style={{ background: '#22c55e', color: '#fff', borderRadius: '50%', minWidth: 18, height: 18, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px' }}>
+                                                                    {unreadCounts[chat._id]}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <p style={{ color: unreadCounts[chat._id] ? '#e9edef' : '#6b7280', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2, fontWeight: unreadCounts[chat._id] ? 600 : 400 }}>
+                                                        {chat.latestMessage ? (chat.latestMessage.content || chat.latestMessage._doc?.content || 'New message') : 'No messages yet'}
+                                                    </p>
+                                                </div>
+                                            </button>
+                                            <button onClick={(e) => { e.stopPropagation(); handleDeleteChat(chat._id) }}
+                                                style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'rgba(239,68,68,0.1)', border: 'none', borderRadius: 6, padding: '4px 6px', cursor: 'pointer', color: '#ef4444', opacity: 0, transition: 'opacity 0.2s' }}
+                                                className="delete-chat-btn">
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                )
+                            })
                         )}
                     </div>
-                </div>
 
-                <div className="flex-1 overflow-y-auto scrollbar-hide">
-                    {/* Search Results */}
-                    {searchResults.length > 0 && (
-                        <div className="p-4 border-b border-white/5 bg-blue-500/5">
-                            <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest px-2 mb-3">People</p>
-                            <div className="space-y-1">
-                                {searchResults.map((u) => (
-                                    <button
-                                        key={u._id}
-                                        onClick={() => startChat(u._id)}
-                                        className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-white/10 transition-all text-left"
-                                    >
-                                        <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden">
-                                            {u.profile_picture ? (
-                                                <img src={u.profile_picture} className="w-full h-full object-cover" />
-                                            ) : (
-                                                <User className="w-4 h-4 text-gray-500" />
-                                            )}
+                    {/* ── Sidebar Footer: User profile + Logout ── */}
+                    <div style={{ padding: '12px 16px', borderTop: '1px solid rgba(255,255,255,0.07)', background: 'rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <div style={{ width: 38, height: 38, borderRadius: '50%', overflow: 'hidden', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                {user?.profile_picture
+                                    ? <img src={user.profile_picture} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    : <User size={18} color="#6b7280" />}
+                            </div>
+                            <div>
+                                <p style={{ color: '#fff', fontWeight: 600, fontSize: 14, lineHeight: 1.2 }}>{user?.username}</p>
+                                <p style={{ color: '#22c55e', fontSize: 11, fontWeight: 500 }}>● Online</p>
+                            </div>
+                        </div>
+                        <button
+                            onClick={async () => { await logoutUser(); router.push('/') }}
+                            title="Logout"
+                            style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', color: '#f87171', fontSize: 13, fontWeight: 600 }}
+                            onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,0.25)' }}
+                            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,0.12)' }}
+                        >
+                            <LogOut size={15} />
+                            Logout
+                        </button>
+                    </div>
+                </aside>
+
+                {/* ─── MAIN CHAT AREA ─── */}
+                <main style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#0c0c0e', position: 'relative', overflow: 'hidden' }}>
+
+                    {activeChat ? (
+                        <>
+                            {/* Chat Header */}
+                            <header style={{ height: 64, background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(20px)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0, zIndex: 10 }}>
+                                <div onClick={fetchChatDetails}
+                                    style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                                    <div style={{ width: 42, height: 42, borderRadius: '50%', overflow: 'hidden', background: activeChat.isGroupChat ? 'rgba(167,139,250,0.1)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        {getChatAvatar(activeChat)
+                                            ? <img src={getChatAvatar(activeChat)!} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                            : (activeChat.isGroupChat ? <Users size={20} color="#a78bfa" /> : <User size={20} color="#6b7280" />)}
+                                    </div>
+                                    <div>
+                                        <p style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{getChatName(activeChat)}</p>
+                                        <p style={{ color: activeChat.isGroupChat ? '#a78bfa' : '#22c55e', fontSize: 12, fontWeight: 500 }}>
+                                            {activeChat.isGroupChat ? "Click for group info" : "Online"}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', gap: 4 }}>
+                                    <button style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 8, borderRadius: '50%', color: '#6b7280' }}><Search size={20} /></button>
+                                    <button style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 8, borderRadius: '50%', color: '#6b7280' }}><MoreVertical size={20} /></button>
+                                </div>
+                            </header>
+
+                            {/* Messages */}
+                            <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 8%', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                {messages.length === 0 ? (
+                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#8696a0', gap: 12, opacity: 0.6 }}>
+                                        <MessageSquare size={48} />
+                                        <p style={{ fontSize: 14 }}>No messages yet. Say hi! 👋</p>
+                                    </div>
+                                ) : (
+                                    messages.map((msg, i) => {
+                                        const isOwn = msg.isMine === true
+                                        const prevMsg = messages[i - 1]
+                                        const isSameSenderAsPrev = prevMsg && prevMsg.sender?._id === msg.sender?._id
+                                        return (
+                                            <div key={msg._id || i} style={{ display: 'flex', flexDirection: isOwn ? 'row-reverse' : 'row', alignItems: 'flex-end', gap: 8, width: '100%', marginTop: isSameSenderAsPrev ? 2 : 10 }}>
+                                                {/* Avatar — shown for ALL messages */}
+                                                <div style={{ width: 30, height: 30, borderRadius: '50%', overflow: 'hidden', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-end', marginBottom: 2 }}>
+                                                    {msg.sender?.profile_picture ? <img src={msg.sender.profile_picture} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <User size={14} color="#6b7280" />}
+                                                </div>
+
+                                                {/* Bubble */}
+                                                <div style={{ maxWidth: '65%', display: 'flex', flexDirection: 'column', alignItems: isOwn ? 'flex-end' : 'flex-start' }}>
+                                                    {/* Sender name for other users */}
+                                                    {!isOwn && !isSameSenderAsPrev && (
+                                                        <span style={{ fontSize: 12, fontWeight: 600, color: '#60a5fa', marginBottom: 2, paddingLeft: 12 }}>{msg.sender?.username}</span>
+                                                    )}
+                                                    <div style={{
+                                                        padding: '8px 14px 6px',
+                                                        borderRadius: isOwn ? '18px 4px 18px 18px' : '4px 18px 18px 18px',
+                                                        background: isOwn ? '#2563eb' : 'rgba(255,255,255,0.06)',
+                                                        border: isOwn ? 'none' : '1px solid rgba(255,255,255,0.08)',
+                                                        color: '#e9edef',
+                                                        fontSize: 14,
+                                                        lineHeight: 1.5,
+                                                        wordBreak: 'break-word',
+                                                        position: 'relative',
+                                                        boxShadow: '0 1px 2px rgba(0,0,0,0.3)',
+                                                        minWidth: 60,
+                                                    }}>
+                                                        {msg.content}
+                                                        {/* Time + tick */}
+                                                        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3, marginTop: 3 }}>
+                                                            <span style={{ fontSize: 10, color: isOwn ? 'rgba(255,255,255,0.5)' : '#6b7280' }}>
+                                                                {new Date(msg.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                            </span>
+                                                            {isOwn && <Check size={12} color="rgba(255,255,255,0.5)" />}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )
+                                    })
+                                )}
+
+                                {/* Typing indicator */}
+                                {isTyping && (
+                                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginTop: 10 }}>
+                                        <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', flexShrink: 0 }} />
+                                        <div style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '4px 18px 18px 18px', padding: '12px 16px', display: 'flex', gap: 4 }}>
+                                            <span style={{ width: 6, height: 6, background: '#6b7280', borderRadius: '50%', animation: 'bounce 1.2s infinite' }} />
+                                            <span style={{ width: 6, height: 6, background: '#6b7280', borderRadius: '50%', animation: 'bounce 1.2s 0.2s infinite' }} />
+                                            <span style={{ width: 6, height: 6, background: '#6b7280', borderRadius: '50%', animation: 'bounce 1.2s 0.4s infinite' }} />
                                         </div>
-                                        <div className="flex flex-col">
-                                            <span className="text-sm font-bold">{u.username}</span>
-                                            <span className="text-[10px] text-gray-500 truncate">{u.email}</span>
-                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Input Bar */}
+                            <div style={{ padding: '8px 16px', background: '#202c33', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, borderTop: '1px solid #2a3942' }}>
+                                <button style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 8, color: '#8696a0', borderRadius: '50%', display: 'flex', alignItems: 'center' }}>
+                                    <Smile size={24} />
+                                </button>
+                                <button style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 8, color: '#8696a0', borderRadius: '50%', display: 'flex', alignItems: 'center' }}>
+                                    <Paperclip size={24} />
+                                </button>
+                                <form onSubmit={sendMessage} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    <input
+                                        value={input}
+                                        onChange={(e) => setInput(e.target.value)}
+                                        onKeyDown={handleTyping}
+                                        placeholder="Type a message"
+                                        style={{ flex: 1, background: '#2a3942', border: 'none', outline: 'none', color: '#e9edef', fontSize: 15, padding: '10px 16px', borderRadius: 8 }}
+                                    />
+                                    <button type="submit" disabled={!input.trim()}
+                                        style={{ width: 44, height: 44, borderRadius: '50%', background: input.trim() ? '#00a884' : '#2a3942', border: 'none', cursor: input.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 0.2s' }}>
+                                        <Send size={20} color={input.trim() ? '#fff' : '#8696a0'} />
                                     </button>
-                                ))}
+                                </form>
+                            </div>
+                        </>
+                    ) : (
+                        /* No chat selected — WhatsApp-style welcome */
+                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#8696a0', textAlign: 'center', gap: 16 }}>
+                            <MessageSquare size={80} color="#2a3942" />
+                            <div>
+                                <h2 style={{ color: '#e9edef', fontSize: 28, fontWeight: 300, marginBottom: 8 }}>WhatsApp Web</h2>
+                                <p style={{ fontSize: 14, color: '#8696a0', maxWidth: 340 }}>
+                                    Send and receive messages without keeping your phone online.
+                                </p>
                             </div>
                         </div>
                     )}
 
-                    {/* Chat List */}
-                    <div className="p-4 space-y-1">
-                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-widest px-2 mb-3">Recent Messages</p>
-                        {chats.length === 0 ? (
-                            <div className="text-center py-10 opacity-30">
-                                <MessageSquare className="w-10 h-10 mx-auto mb-2" />
-                                <p className="text-xs">No active chats</p>
-                            </div>
-                        ) : (
-                            chats.map((chat) => (
-                                <div key={chat._id} className="relative group">
-                                    <button
-                                        onClick={() => setActiveChat(chat)}
-                                        className={`w-full flex items-center gap-3 p-4 rounded-2xl transition-all text-left ${activeChat?._id === chat._id
-                                            ? 'bg-blue-600/10 border border-blue-500/20 text-blue-400'
-                                            : 'hover:bg-white/5 text-gray-400 hover:text-white border border-transparent'
-                                            }`}
-                                    >
-                                        <div className="w-11 h-11 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center overflow-hidden flex-shrink-0">
-                                            {getChatAvatar(chat) ? (
-                                                <img src={getChatAvatar(chat)} className="w-full h-full object-cover" />
-                                            ) : (
-                                                <User className="w-6 h-6 text-gray-500" />
-                                            )}
-                                        </div>
-                                        <div className="flex flex-col flex-1 truncate">
-                                            <span className="text-sm font-bold">{getChatName(chat)}</span>
-                                            <span className="text-[11px] opacity-60 truncate">
-                                                {chat.latestMessage ? chat.latestMessage.content : "No messages yet"}
-                                            </span>
-                                        </div>
-                                        {activeChat?._id === chat._id && (
-                                            <div className="w-1.5 h-1.5 bg-blue-400 rounded-full"></div>
-                                        )}
-                                    </button>
-                                    <button
-                                        onClick={(e) => { e.stopPropagation(); handleDeleteChat(chat._id); }}
-                                        className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-lg bg-red-500/10 text-red-500 opacity-0 group-hover:opacity-100 hover:bg-red-500 hover:text-white transition-all scale-75 group-hover:scale-100"
-                                    >
-                                        <Trash2 className="w-4 h-4" />
-                                    </button>
-                                </div>
-                            ))
-                        )}
-                    </div>
-                </div>
+                    <style>{`
+                    @keyframes bounce {
+                        0%, 60%, 100% { transform: translateY(0); }
+                        30% { transform: translateY(-4px); }
+                    }
+                    .delete-chat-btn { opacity: 0 !important; }
+                    div:hover > .delete-chat-btn { opacity: 1 !important; }
+                    ::-webkit-scrollbar { width: 6px; }
+                    ::-webkit-scrollbar-track { background: transparent; }
+                    ::-webkit-scrollbar-thumb { background: #2a3942; border-radius: 3px; }
+                `}</style>
+                </main>
+            </div>
 
-                {/* User Profile Footer */}
-                <div className="p-4 border-t border-white/5 bg-black/20">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-blue-600 to-indigo-600 flex items-center justify-center border border-white/10">
-                                {user?.profile_picture ? (
-                                    <img src={user.profile_picture} className="w-full h-full object-cover rounded-xl" />
-                                ) : (
-                                    <User className="w-5 h-5 text-white" />
-                                )}
+            {/* ── Create Group Modal ── */}
+            {showGroupModal && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    onClick={() => setShowGroupModal(false)}>
+                    <div style={{ background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 28, width: 420, maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: 16, boxShadow: '0 24px 60px rgba(0,0,0,0.6)' }}
+                        onClick={e => e.stopPropagation()}>
+
+                        {/* Modal header */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(167,139,250,0.15)', border: '1px solid rgba(167,139,250,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <Users size={18} color="#a78bfa" />
+                                </div>
+                                <span style={{ color: '#fff', fontWeight: 700, fontSize: 17 }}>New Group Chat</span>
                             </div>
-                            <div className="flex flex-col">
-                                <span className="text-sm font-bold truncate max-w-[100px]">{user?.username}</span>
-                                <span className="text-[10px] text-green-500 font-medium">Online</span>
-                            </div>
-                        </div>
-                        <div className="flex gap-2">
-                            <button className="p-2 rounded-lg hover:bg-white/5 text-gray-500 hover:text-white" onClick={() => router.push('/home')}>
-                                <ArrowLeft className="w-4 h-4" />
+                            <button onClick={() => setShowGroupModal(false)}
+                                style={{ background: 'rgba(255,255,255,0.05)', border: 'none', borderRadius: 8, padding: 6, cursor: 'pointer', color: '#6b7280' }}>
+                                <X size={18} />
                             </button>
                         </div>
-                    </div>
-                </div>
-            </aside>
 
-            {/* Main Chat Area */}
-            <main className="flex-1 flex flex-col h-full bg-[#0c0c0e] relative">
-                {activeChat ? (
-                    <>
-                        {/* Header */}
-                        <header className="h-20 border-b border-white/5 bg-black/20 backdrop-blur-xl px-8 flex items-center justify-between relative z-10">
-                            <div className="flex items-center gap-4">
-                                <div className="w-11 h-11 bg-white/5 rounded-xl border border-white/10 flex items-center justify-center overflow-hidden">
-                                    {getChatAvatar(activeChat) ? (
-                                        <img src={getChatAvatar(activeChat)} className="w-full h-full object-cover" />
+                        {/* Group name input */}
+                        <div>
+                            <label style={{ display: 'block', color: '#6b7280', fontSize: 12, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Group Name</label>
+                            <input
+                                value={groupName}
+                                onChange={e => setGroupName(e.target.value)}
+                                placeholder="e.g. Project Team, Friends..."
+                                style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '10px 14px', color: '#fff', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
+                            />
+                        </div>
+
+                        {/* Group profile picture input */}
+                        <div>
+                            <label style={{ display: 'block', color: '#6b7280', fontSize: 12, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Group Profile Picture</label>
+                            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                                <div style={{ width: 60, height: 60, borderRadius: 12, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', position: 'relative' }}>
+                                    {groupFile ? (
+                                        <img src={URL.createObjectURL(groupFile)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                    ) : groupProfilePic ? (
+                                        <img src={groupProfilePic} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                     ) : (
-                                        <Hash className="w-5 h-5 text-blue-400" />
+                                        <Users size={28} color="#6b7280" />
                                     )}
                                 </div>
-                                <div>
-                                    <h2 className="font-bold text-lg">{getChatName(activeChat)}</h2>
-                                    <p className="text-xs text-green-500 font-medium tracking-wide uppercase">Active Now</p>
+                                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                    <div style={{ display: 'flex', gap: 8 }}>
+                                        <label style={{ background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', color: '#60a5fa', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                            <Paperclip size={14} /> Upload Image
+                                            <input
+                                                type="file"
+                                                accept="image/*"
+                                                onChange={e => {
+                                                    const file = e.target.files?.[0]
+                                                    if (file) {
+                                                        setGroupFile(file)
+                                                        setGroupProfilePic('')
+                                                    }
+                                                }}
+                                                style={{ display: 'none' }}
+                                            />
+                                        </label>
+                                        {(groupFile || groupProfilePic) && (
+                                            <button
+                                                onClick={() => { setGroupFile(null); setGroupProfilePic('') }}
+                                                style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: '#ef4444' }}
+                                            >
+                                                <X size={14} />
+                                            </button>
+                                        )}
+                                    </div>
+                                    <input
+                                        value={groupProfilePic}
+                                        onChange={e => { setGroupProfilePic(e.target.value); setGroupFile(null) }}
+                                        placeholder="Or paste image URL..."
+                                        style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '8px 12px', color: '#fff', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+                                    />
                                 </div>
                             </div>
+                        </div>
 
-                            <div className="flex items-center gap-6">
-                                <div className="flex items-center gap-2">
-                                    <button className="p-2.5 rounded-xl hover:bg-white/5 text-gray-500 hover:text-white">
-                                        <Bell className="w-5 h-5" />
-                                    </button>
-                                    <button className="p-2.5 rounded-xl hover:bg-white/5 text-gray-500 hover:text-white">
-                                        <Settings className="w-5 h-5" />
-                                    </button>
-                                </div>
+                        {/* Search users for group */}
+                        <div>
+                            <label style={{ display: 'block', color: '#6b7280', fontSize: 12, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Add Members (min 2)</label>
+                            <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, display: 'flex', alignItems: 'center', padding: '8px 12px', gap: 8 }}>
+                                <Search size={14} color="#6b7280" />
+                                <input
+                                    value={groupUserSearch}
+                                    onChange={e => { setGroupUserSearch(e.target.value); searchGroupUsers(e.target.value) }}
+                                    placeholder="Search users..."
+                                    style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 14 }}
+                                />
                             </div>
-                        </header>
 
-                        {/* Messages Panel */}
-                        <div
-                            ref={scrollRef}
-                            className="flex-1 overflow-y-auto p-8 space-y-6 scrollbar-thin scrollbar-thumb-white/5"
-                        >
-                            {messages.length === 0 ? (
-                                <div className="h-full flex flex-col items-center justify-center opacity-20 text-center">
-                                    <MessageSquare className="w-24 h-24 mb-6" />
-                                    <h3 className="text-2xl font-bold">Start your conversation</h3>
-                                    <p className="text-sm">Say something nice to {getChatName(activeChat)}</p>
+                            {/* Search results */}
+                            {groupUserResults.length > 0 && (
+                                <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, marginTop: 6, maxHeight: 160, overflowY: 'auto' }}>
+                                    {groupUserResults.map(u => {
+                                        const selected = !!selectedGroupUsers.find(x => x._id === u._id)
+                                        return (
+                                            <button key={u._id} onClick={() => toggleGroupUser(u)}
+                                                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', background: selected ? 'rgba(167,139,250,0.1)' : 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+                                                <div style={{ width: 32, height: 32, borderRadius: '50%', overflow: 'hidden', background: 'rgba(255,255,255,0.07)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    {u.profile_picture ? <img src={u.profile_picture} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <User size={14} color="#6b7280" />}
+                                                </div>
+                                                <span style={{ color: selected ? '#a78bfa' : '#e9edef', fontSize: 14, fontWeight: selected ? 600 : 400 }}>{u.username}</span>
+                                                {selected && <span style={{ marginLeft: 'auto', color: '#a78bfa', fontSize: 12 }}>✓ Added</span>}
+                                            </button>
+                                        )
+                                    })}
                                 </div>
-                            ) : (
-                                messages.map((msg, i) => (
-                                    <div key={msg._id || i} className={`flex gap-4 group ${msg.sender?._id === user?._id ? 'flex-row-reverse' : ''} animate-in fade-in slide-in-from-bottom-2 duration-300`}>
-                                        <div className="w-10 h-10 rounded-xl bg-white/5 border border-white/10 flex-shrink-0 flex items-center justify-center mt-1">
-                                            {msg.sender?.profile_picture ? (
-                                                <img src={msg.sender.profile_picture} className="w-full h-full object-cover rounded-xl" />
+                            )}
+
+                            {/* Selected chips */}
+                            {selectedGroupUsers.length > 0 && (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                                    {selectedGroupUsers.map(u => (
+                                        <span key={u._id} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(167,139,250,0.15)', border: '1px solid rgba(167,139,250,0.3)', borderRadius: 20, padding: '4px 10px 4px 8px', fontSize: 13, color: '#a78bfa' }}>
+                                            {u.username}
+                                            <button onClick={() => toggleGroupUser(u)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#a78bfa', display: 'flex' }}><X size={12} /></button>
+                                        </span>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Create button */}
+                        <button
+                            onClick={handleCreateGroup}
+                            disabled={!groupName.trim() || selectedGroupUsers.length < 2 || creatingGroup}
+                            style={{ background: selectedGroupUsers.length >= 2 && groupName.trim() ? 'linear-gradient(135deg, #7c3aed, #a78bfa)' : 'rgba(255,255,255,0.05)', border: 'none', borderRadius: 10, padding: '12px', cursor: selectedGroupUsers.length >= 2 && groupName.trim() ? 'pointer' : 'default', color: selectedGroupUsers.length >= 2 && groupName.trim() ? '#fff' : '#6b7280', fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'all 0.2s' }}>
+                            {creatingGroup ? <Loader2 size={18} className="animate-spin" /> : <><Users size={16} /> Create Group</>}
+                        </button>
+                    </div>
+                </div>
+            )}
+            {/* ── Chat Details Modal (Premium Theme) ── */}
+            {showDetailsModal && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(10,10,11,0.6)', backdropFilter: 'blur(12px)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    onClick={() => { setShowDetailsModal(false); setChatDetails(null) }}>
+                    <div style={{ background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 24, width: 450, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 80px rgba(0,0,0,0.6)' }}
+                        onClick={e => e.stopPropagation()}>
+
+                        {/* Modal Header */}
+                        <div style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 15, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                            <button onClick={() => { setShowDetailsModal(false); setChatDetails(null) }}
+                                style={{ background: 'none', border: 'none', color: '#8696a0', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                                <X size={22} />
+                            </button>
+                            <span style={{ color: '#e9edef', fontSize: 18, fontWeight: 600 }}>{activeChat?.isGroupChat ? 'Group info' : 'Contact info'}</span>
+                        </div>
+
+                        {/* Modal Content Scrollable */}
+                        <div style={{ flex: 1, overflowY: 'auto', background: '#161625' }}>
+                            {detailsLoading ? (
+                                <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <Loader2 size={32} className="animate-spin" color="#a78bfa" />
+                                </div>
+                            ) : chatDetails ? (
+                                <>
+                                    {/* Big Profile Pic Section */}
+                                    <div style={{ background: '#1a1a2e', padding: '28px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 }}>
+                                        <div style={{ width: 200, height: 200, borderRadius: '50%', overflow: 'hidden', background: activeChat?.isGroupChat ? 'rgba(167,139,250,0.1)' : 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 10px 40px rgba(0,0,0,0.4)', border: '2px solid rgba(167,139,250,0.2)' }}>
+                                            {getChatAvatar(activeChat) ? (
+                                                <img src={getChatAvatar(activeChat)!} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                                             ) : (
-                                                <User className="w-5 h-5 text-gray-500" />
+                                                activeChat?.isGroupChat ? <Users size={100} color="#a78bfa" /> : <User size={100} color="#8696a0" />
                                             )}
                                         </div>
-                                        <div className={`flex flex-col max-w-2xl ${msg.sender?._id === user?._id ? 'items-end' : ''}`}>
-                                            <div className="flex items-center gap-3 mb-1.5 px-1">
-                                                <span className="text-[11px] font-bold uppercase tracking-wider text-blue-400">{msg.sender?.username || 'System'}</span>
-                                                <span className="text-[10px] text-gray-600 font-medium">
-                                                    {new Date(msg.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                </span>
-                                            </div>
-                                            <div className={`p-4 rounded-[22px] text-sm leading-relaxed ${msg.sender?._id === user?._id
-                                                ? 'bg-blue-600 text-white rounded-tr-none shadow-lg shadow-blue-500/10'
-                                                : 'bg-white/5 border border-white/5 text-gray-300 rounded-tl-none'
-                                                }`}>
-                                                {msg.content}
-                                            </div>
-                                        </div>
-                                        <div className={`self-center p-2 opacity-0 group-hover:opacity-100 transition-opacity ${msg.sender?._id === user?._id ? 'mr-auto' : 'ml-auto'}`}>
-                                            <MoreVertical className="w-4 h-4 text-gray-600 cursor-pointer hover:text-white" />
+                                        <div style={{ textAlign: 'center' }}>
+                                            <h2 style={{ color: '#fff', fontSize: 24, fontWeight: 700, margin: 0, letterSpacing: '-0.02em' }}>{chatDetails.chatName || chatDetails.user?.username}</h2>
+                                            {activeChat?.isGroupChat && (
+                                                <p style={{ color: '#a78bfa', fontSize: 16, marginTop: 4, fontWeight: 500 }}>Group • {chatDetails.totalMembers} members</p>
+                                            )}
                                         </div>
                                     </div>
-                                ))
-                            )}
-                            {isTyping && (
-                                <div className="flex items-center gap-2 px-4 py-2 bg-white/5 rounded-full w-fit animate-in fade-in slide-in-from-left-2 shadow-sm">
-                                    <span className="flex gap-1">
-                                        <span className="w-1 h-1 bg-blue-500 rounded-full animate-bounce"></span>
-                                        <span className="w-1 h-1 bg-blue-500 rounded-full animate-bounce [animation-delay:0.2s]"></span>
-                                        <span className="w-1 h-1 bg-blue-500 rounded-full animate-bounce [animation-delay:0.4s]"></span>
-                                    </span>
-                                    <span className="text-[10px] text-blue-400 font-bold uppercase tracking-widest">Typing...</span>
-                                </div>
-                            )}
-                        </div>
 
-                        {/* Message Input Area */}
-                        <div className="p-8 pt-0">
-                            <form
-                                onSubmit={sendMessage}
-                                className="bg-black/40 backdrop-blur-2xl border border-white/5 rounded-[28px] p-2 flex items-center gap-2 relative shadow-2xl"
-                            >
-                                <button type="button" className="p-3.5 rounded-2xl hover:bg-white/5 text-gray-500 hover:text-white transition-all">
-                                    <Plus className="w-5 h-5" />
-                                </button>
-                                <div className="h-6 w-px bg-white/5"></div>
-                                <input
-                                    value={input}
-                                    onChange={(e) => setInput(e.target.value)}
-                                    onKeyDown={handleTyping}
-                                    placeholder={`Message ${getChatName(activeChat)}...`}
-                                    className="flex-1 bg-transparent border-none focus:outline-none px-4 text-sm placeholder:text-gray-600"
-                                />
-                                <div className="flex items-center gap-1">
-                                    <button type="button" className="p-3.5 rounded-2xl hover:bg-white/5 text-gray-500 hover:text-white transition-all">
-                                        <Smile className="w-5 h-5" />
-                                    </button>
-                                    <button type="button" className="p-3.5 rounded-2xl hover:bg-white/5 text-gray-500 hover:text-white transition-all">
-                                        <Paperclip className="w-5 h-5" />
-                                    </button>
-                                    <Button
-                                        type="submit"
-                                        disabled={!input.trim()}
-                                        className="bg-blue-600 hover:bg-blue-700 h-12 w-12 rounded-2xl p-0 shadow-lg shadow-blue-500/20 disabled:opacity-50 transition-all"
-                                    >
-                                        <Send className="w-5 h-5 text-white" />
-                                    </Button>
-                                </div>
-                            </form>
+                                    {/* Description / Status Section */}
+                                    <div style={{ background: '#1a1a2e', marginTop: 10, padding: '20px' }}>
+                                        <label style={{ display: 'block', color: '#a78bfa', fontSize: 13, fontWeight: 700, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{activeChat?.isGroupChat ? 'Description' : 'About'}</label>
+                                        <p style={{ color: '#e9edef', fontSize: 16, margin: 0, lineHeight: 1.6 }}>
+                                            {chatDetails.groupDescription || (activeChat?.isGroupChat ? "No description provided." : "Hey there! I am using this chatapp.")}
+                                        </p>
+                                        <p style={{ color: '#6b7280', fontSize: 13, marginTop: 12 }}>
+                                            Created {new Date(chatDetails.createdAt).toLocaleDateString()}
+                                        </p>
+                                    </div>
+
+                                    {/* Members Section (Groups Only) */}
+                                    {activeChat?.isGroupChat && (
+                                        <div style={{ background: '#1a1a2e', marginTop: 10, paddingBottom: 20 }}>
+                                            <div style={{ padding: '20px 20px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                <label style={{ color: '#a78bfa', fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{chatDetails.totalMembers} participants</label>
+                                                <Search size={18} color="#6b7280" />
+                                            </div>
+                                            <div>
+                                                {chatDetails.members?.map((member: any) => (
+                                                    <div key={member._id} style={{ display: 'flex', alignItems: 'center', gap: 15, padding: '12px 20px', cursor: 'pointer', transition: 'background 0.2s' }}
+                                                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                                                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                                                        <div style={{ width: 44, height: 44, borderRadius: '50%', overflow: 'hidden', background: 'rgba(255,255,255,0.05)', flexShrink: 0, border: '1px solid rgba(255,255,255,0.1)' }}>
+                                                            {member.profile_picture ? <img src={member.profile_picture} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <User size={22} color="#6b7280" style={{ margin: 11 }} />}
+                                                        </div>
+                                                        <div style={{ flex: 1, borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                            <div>
+                                                                <p style={{ color: '#fff', fontSize: 16, fontWeight: 600, margin: 0 }}>{member.username} {member._id === user?._id && "(You)"}</p>
+                                                                <p style={{ color: member.isOnline ? '#22c55e' : '#6b7280', fontSize: 13, margin: 0, fontWeight: 500 }}>{member.isOnline ? "Online" : "Away"}</p>
+                                                            </div>
+                                                            {member._id === chatDetails.groupAdmin?._id && (
+                                                                <span style={{ background: 'rgba(167,139,250,0.15)', color: '#a78bfa', borderRadius: 6, padding: '4px 8px', fontSize: 11, fontWeight: 700, border: '1px solid rgba(167,139,250,0.3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Admin</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Footer Actions */}
+                                    <div style={{ background: '#1a1a2e', marginTop: 10, padding: 10 }}>
+                                        <button style={{ width: '100%', background: 'none', border: 'none', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 20, color: '#ef4444', cursor: 'pointer', fontSize: 16, fontWeight: 600, textAlign: 'left', transition: 'all 0.2s', borderRadius: 12 }}
+                                            onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.05)'}
+                                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                                            <Trash2 size={20} />
+                                            <span>{activeChat?.isGroupChat ? 'Exit group' : 'Block contact'}</span>
+                                        </button>
+                                    </div>
+                                </>
+                            ) : null}
                         </div>
-                    </>
-                ) : (
-                    <div className="flex-1 flex flex-col items-center justify-center p-20 text-center relative overflow-hidden">
-                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-blue-600/5 rounded-full blur-[100px] pointer-events-none"></div>
-                        <div className="w-24 h-24 bg-gradient-to-tr from-blue-600 to-indigo-600 rounded-[32px] flex items-center justify-center shadow-2xl shadow-blue-500/20 mb-8 relative z-10">
-                            <Hash className="w-12 h-12 text-white" />
-                        </div>
-                        <h2 className="text-4xl font-extrabold mb-4 tracking-tight relative z-10">Select a conversation</h2>
-                        <p className="text-gray-400 max-w-sm leading-relaxed relative z-10">
-                            Choose a contact from the sidebar or search for someone new to start chatting in real-time.
-                        </p>
                     </div>
-                )}
-            </main>
-        </div>
+                </div>
+            )}
+        </>
     )
 }
+

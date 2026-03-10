@@ -5,10 +5,12 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import {
     Loader2, User, LogOut, Settings, Mail, ShieldCheck,
-    ArrowRight, Globe, Lock, Shield, Activity, MessageSquare
+    ArrowRight, Globe, Lock, Shield, Activity, MessageSquare,
+    Bot, Sparkles
 } from 'lucide-react'
 import { getMe, logoutUser } from '@/backend/login'
 import Chat from '@/components/Chat'
+import { getAllTasks } from '@/backend/tasks'
 
 export default function HomePage() {
     const router = useRouter()
@@ -16,9 +18,12 @@ export default function HomePage() {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [isChatOpen, setIsChatOpen] = useState(false)
+    const [tasks, setTasks] = useState<any[]>([])
+    const [tasksLoading, setTasksLoading] = useState(false)
 
     useEffect(() => {
         fetchUser()
+        fetchTasks()
     }, [router])
 
     const fetchUser = async () => {
@@ -36,6 +41,20 @@ export default function HomePage() {
             router.push('/')
         } finally {
             setLoading(false)
+        }
+    }
+
+    const fetchTasks = async () => {
+        try {
+            setTasksLoading(true)
+            const data = await getAllTasks()
+            if (data.success) {
+                setTasks(data.tasks.slice(0, 3))
+            }
+        } catch (err) {
+            console.error('Error fetching tasks:', err)
+        } finally {
+            setTasksLoading(false)
         }
     }
 
@@ -203,31 +222,94 @@ export default function HomePage() {
                         </button>
 
                         <button
-                            onClick={() => router.push('/dashboard')}
-                            className='group p-8 rounded-[32px] bg-white/5 border border-white/10 hover:bg-white/10 transition-all text-left relative overflow-hidden'
+                            onClick={() => router.push('/ai-chat')}
+                            className='group p-8 rounded-[32px] bg-gradient-to-br from-purple-600/10 to-blue-600/10 border border-purple-500/20 hover:border-purple-500/40 transition-all text-left relative overflow-hidden'
                         >
                             <div className='absolute top-0 right-0 p-8 text-white/5 group-hover:text-purple-500/20 transition-colors'>
-                                <Shield className='w-24 h-24 -rotate-12 translate-x-12' />
+                                <Bot className='w-24 h-24 -rotate-12 translate-x-12' />
                             </div>
                             <div className='w-12 h-12 bg-purple-500/10 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-purple-500/20 transition-colors'>
-                                <Shield className='w-6 h-6 text-purple-400' />
+                                <Sparkles className='w-6 h-6 text-purple-400' />
                             </div>
-                            <h3 className='text-xl font-bold mb-2'>Privacy & Security</h3>
-                            <p className='text-gray-400 text-sm mb-6'>Update your password and enable two-factor authentication for better safety.</p>
+                            <h3 className='text-xl font-bold mb-2'>AI Chat Bot</h3>
+                            <p className='text-gray-400 text-sm mb-6'>Chat with our advanced AI assistant to get answers, ideas, and help with anything.</p>
                             <div className='flex items-center gap-2 text-purple-400 text-sm font-bold'>
-                                Secure Now
+                                Chat With AI
                                 <ArrowRight className='w-4 h-4 group-hover:translate-x-1 transition-transform' />
                             </div>
                         </button>
 
-                        <div className='md:col-span-2 p-8 rounded-[32px] bg-gradient-to-r from-blue-600/20 to-purple-600/20 border border-white/10 flex flex-col md:flex-row items-center justify-between gap-6'>
-                            <div>
-                                <h3 className='text-xl font-bold mb-2'>Need any help?</h3>
-                                <p className='text-gray-400 text-sm'>Our support team is always here to assist you with any questions or issues.</p>
+                        {/* Task Management Section */}
+                        <div className='md:col-span-2 p-8 rounded-[32px] bg-gradient-to-r from-blue-600/10 to-indigo-600/10 border border-white/10 relative overflow-hidden group'>
+                            <div className='absolute top-0 right-0 w-64 h-64 bg-blue-500/5 rounded-full blur-[80px] -mr-32 -mt-32'></div>
+
+                            <div className='relative z-10 flex flex-col lg:flex-row justify-between gap-10'>
+                                <div className='flex-1'>
+                                    <div className='flex items-center gap-3 mb-6'>
+                                        <div className='w-10 h-10 bg-blue-500/20 rounded-xl flex items-center justify-center text-blue-400'>
+                                            <Activity className='w-5 h-5' />
+                                        </div>
+                                        <div>
+                                            <h3 className='text-2xl font-bold'>Recent Tasks</h3>
+                                            <p className='text-sm text-gray-400'>Track your progress and stay organized.</p>
+                                        </div>
+                                    </div>
+
+                                    {tasksLoading ? (
+                                        <div className='flex items-center gap-2 text-gray-500 py-4'>
+                                            <Loader2 className='w-4 h-4 animate-spin' />
+                                            <span className='text-sm'>Updating tasks...</span>
+                                        </div>
+                                    ) : tasks.length > 0 ? (
+                                        <div className='space-y-3'>
+                                            {tasks.map((task) => (
+                                                <div key={task._id} className='flex items-center justify-between p-4 rounded-2xl bg-black/20 border border-white/5 hover:border-white/10 transition-colors'>
+                                                    <div className='flex items-center gap-4'>
+                                                        <div className={`w-2 h-2 rounded-full ${task.status === 'completed' ? 'bg-green-500' :
+                                                            task.status === 'in_progress' ? 'bg-blue-400' : 'bg-gray-500'
+                                                            }`}></div>
+                                                        <div>
+                                                            <p className='text-sm font-semibold'>{task.title}</p>
+                                                            <p className='text-xs text-gray-500'>{task.category} • Due {new Date(task.due_date).toLocaleDateString()}</p>
+                                                        </div>
+                                                    </div>
+                                                    <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-md ${task.priority === 'high' ? 'text-red-400 bg-red-400/10' :
+                                                        task.priority === 'medium' ? 'text-yellow-400 bg-yellow-400/10' :
+                                                            'text-blue-400 bg-blue-400/10'
+                                                        }`}>
+                                                        {task.priority}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className='py-8 text-center bg-black/10 rounded-2xl border border-dashed border-white/10'>
+                                            <p className='text-gray-500 text-sm'>No recent tasks found.</p>
+                                            <button
+                                                onClick={() => router.push('/tasks')}
+                                                className='mt-2 text-blue-400 text-xs font-bold hover:underline'
+                                            >
+                                                Create your first task
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className='flex flex-col justify-center gap-4 min-w-[200px]'>
+                                    <button
+                                        onClick={() => router.push('/tasks')}
+                                        className='w-full py-4 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm transition-all shadow-lg shadow-blue-500/20 active:scale-95'
+                                    >
+                                        Create New Task
+                                    </button>
+                                    <button
+                                        onClick={() => router.push('/tasks')}
+                                        className='w-full py-4 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-gray-300 font-bold text-sm transition-all active:scale-95'
+                                    >
+                                        View All Tasks
+                                    </button>
+                                </div>
                             </div>
-                            <Button className='bg-white text-black hover:bg-gray-200 rounded-2xl px-8 py-6 h-auto font-bold'>
-                                Contact Support
-                            </Button>
                         </div>
                     </div>
                 </div>

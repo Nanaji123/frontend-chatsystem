@@ -56,3 +56,22 @@ export const getMessages = async (chatId: string, page = 1, limit = 30) => {
     });
     return await response.json();
 };
+
+export const createGroupChat = async (formData: FormData) => {
+    console.log(formData);
+    const response = await fetch(`${baseurl}/api/v1/chat/create-group-chat`, {
+        method: 'POST',
+        body: formData,
+        credentials: 'include',
+    });
+    return await response.json();
+};
+
+export const getChatDetails = async (chatId: string) => {
+    const response = await fetch(`${baseurl}/api/v1/chat/get-chat-details/${chatId}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+    });
+    return await response.json();
+};
