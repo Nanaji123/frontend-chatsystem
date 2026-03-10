@@ -8,8 +8,7 @@ import {
     ArrowRight, Globe, Lock, Shield, Activity, MessageSquare,
     Bot, Sparkles
 } from 'lucide-react'
-import { getMe, logoutUser } from '@/backend/login'
-import Chat from '@/components/Chat'
+import { logoutUser, getMe } from '@/backend/login'
 import { getAllTasks } from '@/backend/tasks'
 
 export default function HomePage() {
@@ -17,7 +16,6 @@ export default function HomePage() {
     const [user, setUser] = useState<{ username: string, email: string, profile_picture?: string } | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
-    const [isChatOpen, setIsChatOpen] = useState(false)
     const [tasks, setTasks] = useState<any[]>([])
     const [tasksLoading, setTasksLoading] = useState(false)
 
@@ -313,7 +311,7 @@ export default function HomePage() {
                         </div>
                     </div>
                 </div>
-            </main>
+            </main >
 
             <footer className='relative z-10 border-t border-white/5 mt-24 py-12'>
                 <div className='max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-6 text-gray-500 text-sm'>
@@ -326,26 +324,6 @@ export default function HomePage() {
                 </div>
             </footer>
 
-            {/* Chat Toggle Button */}
-            <button
-                onClick={() => setIsChatOpen(true)}
-                className="fixed bottom-8 right-8 w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center shadow-2xl shadow-blue-500/40 hover:bg-blue-700 hover:scale-110 transition-all z-[90] group"
-            >
-                <div className="absolute -top-2 -right-2 bg-green-500 w-4 h-4 rounded-full border-4 border-[#0a0a0b] animate-pulse"></div>
-                <MessageSquare className="w-7 h-7 text-white group-hover:rotate-12 transition-transform" />
-            </button>
-
-            {/* Chat Popup */}
-            {isChatOpen && (
-                <div
-                    className="fixed inset-0 z-[100] bg-black/20 backdrop-blur-[2px] pointer-events-auto"
-                    onClick={() => setIsChatOpen(false)}
-                >
-                    <div className="fixed bottom-28 right-8">
-                        <Chat onClose={() => setIsChatOpen(false)} />
-                    </div>
-                </div>
-            )}
-        </div>
+        </div >
     )
 }
