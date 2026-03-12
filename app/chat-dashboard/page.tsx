@@ -12,10 +12,10 @@ import {
 import { Button } from '@/components/ui/button'
 import { getMe, logoutUser } from '@/backend/login'
 import {
-    searchUsers, getChats, createChat, deleteChat, getMessages, createGroupChat, getChatDetails
+    searchUsers, getChats, createChat, deleteChat, getMessages, createGroupChat, getChatDetails, removeUserFromGroup
 } from '@/backend/chat'
 
-const SOCKET_URL = "http://localhost:3001"
+const SOCKET_URL = "http://localhost:8000"
 
 export default function ChatDashboard() {
     const router = useRouter()
@@ -44,6 +44,7 @@ export default function ChatDashboard() {
     const [showDetailsModal, setShowDetailsModal] = useState(false)
     const [chatDetails, setChatDetails] = useState<any>(null)
     const [detailsLoading, setDetailsLoading] = useState(false)
+    const [activeParticipantMenu, setActiveParticipantMenu] = useState<string | null>(null)
     const scrollRef = useRef<HTMLDivElement>(null)
     const activeChatRef = useRef<any>(null)
     const userRef = useRef<any>(null)
@@ -55,6 +56,13 @@ export default function ChatDashboard() {
     useEffect(() => {
         userRef.current = user
     }, [user])
+
+
+    useEffect(() => {
+        const handleClickOutside = () => setActiveParticipantMenu(null)
+        window.addEventListener('click', handleClickOutside)
+        return () => window.removeEventListener('click', handleClickOutside)
+    }, [])
 
     useEffect(() => {
         fetchInitialData()
@@ -102,27 +110,29 @@ export default function ChatDashboard() {
 
         newSocket.on('receive_message', (fullMessage: any) => {
             // Normalize raw Mongoose doc
-            const chatId = fullMessage._doc?.chat || fullMessage.chat
+            const chat_id = (fullMessage.chat || fullMessage.chat_id || fullMessage._doc?.chat)?.toString()
             const msg = fullMessage._doc
                 ? { ...fullMessage._doc, isMine: fullMessage.isMine }
-                : { ...fullMessage, isMine: fullMessage.isMine ?? (fullMessage.sender?._id?.toString() === userRef.current?._id?.toString()) }
+                : { ...fullMessage, isMine: fullMessage.isMine ?? (fullMessage.sender?._id?.toString() === (userRef.current?._id || userRef.current?.id)?.toString()) }
 
-            setMessages((prev) => {
-                if (prev.find(m => m._id === msg._id)) return prev;
-                return [...prev, msg]
-            })
+            if (chat_id === activeChatRef.current?._id?.toString()) {
+                setMessages((prev) => {
+                    if (prev.find(m => m._id === msg._id)) return prev;
+                    return [...prev, msg]
+                })
+            }
 
             // Update latest message preview in sidebar
             setChats(prevChats => prevChats.map(c => {
-                if (c._id === chatId) {
+                if (c._id === chat_id) {
                     return { ...c, latestMessage: msg }
                 }
                 return c
             }))
 
             // Increment unread badge if this chat is not currently open
-            if (activeChatRef.current?._id !== chatId) {
-                setUnreadCounts(prev => ({ ...prev, [chatId]: (prev[chatId] || 0) + 1 }))
+            if (activeChatRef.current?._id?.toString() !== chat_id) {
+                setUnreadCounts(prev => ({ ...prev, [chat_id]: (prev[chat_id] || 0) + 1 }))
             }
         })
 
@@ -308,6 +318,21 @@ export default function ChatDashboard() {
             console.error("Error fetching chat details:", err)
         } finally {
             setDetailsLoading(false)
+        }
+    }
+
+    const handleRemoveUser = async (user_id: string) => {
+        if (!activeChat || !confirm("Are you sure you want to remove this user from the group?")) return
+        try {
+            const data = await removeUserFromGroup(activeChat._id, user_id)
+            if (data.success) {
+                setChatDetails(data.chat)
+                // Update chats list locally
+                setChats(prev => prev.map(c => c._id === data.chat._id ? data.chat : c))
+                setActiveParticipantMenu(null)
+            }
+        } catch (err) {
+            console.error("Error removing user:", err)
         }
     }
 
@@ -829,24 +854,53 @@ export default function ChatDashboard() {
                                                 <Search size={18} color="#6b7280" />
                                             </div>
                                             <div>
-                                                {chatDetails.members?.map((member: any) => (
-                                                    <div key={member._id} style={{ display: 'flex', alignItems: 'center', gap: 15, padding: '12px 20px', cursor: 'pointer', transition: 'background 0.2s' }}
-                                                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
-                                                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                                                        <div style={{ width: 44, height: 44, borderRadius: '50%', overflow: 'hidden', background: 'rgba(255,255,255,0.05)', flexShrink: 0, border: '1px solid rgba(255,255,255,0.1)' }}>
-                                                            {member.profile_picture ? <img src={member.profile_picture} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <User size={22} color="#6b7280" style={{ margin: 11 }} />}
-                                                        </div>
-                                                        <div style={{ flex: 1, borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                            <div>
-                                                                <p style={{ color: '#fff', fontSize: 16, fontWeight: 600, margin: 0 }}>{member.username} {member._id === user?._id && "(You)"}</p>
-                                                                <p style={{ color: member.isOnline ? '#22c55e' : '#6b7280', fontSize: 13, margin: 0, fontWeight: 500 }}>{member.isOnline ? "Online" : "Away"}</p>
+                                                {chatDetails.members?.map((member: any) => {
+                                                    const memberId = (member._id || member.id || member?.id)?.toString();
+                                                    const currentUserId = (user?._id || user?.id || user?.uid)?.toString();
+                                                    const adminId = (chatDetails.groupAdmin?._id || chatDetails.groupAdmin?.id || chatDetails.groupAdmin)?.toString();
+                                                    const isMe = memberId === currentUserId;
+                                                    const isAdmin = memberId === adminId;
+                                                    const amIAdmin = currentUserId === adminId;
+
+                                                    return (
+                                                        <div key={memberId} style={{ display: 'flex', alignItems: 'center', gap: 15, padding: '12px 20px', cursor: 'pointer', transition: 'background 0.2s' }}
+                                                            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                                                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                                                            <div style={{ width: 44, height: 44, borderRadius: '50%', overflow: 'hidden', background: 'rgba(255,255,255,0.05)', flexShrink: 0, border: '1px solid rgba(255,255,255,0.1)' }}>
+                                                                {member.profile_picture ? <img src={member.profile_picture} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <User size={22} color="#6b7280" style={{ margin: 11 }} />}
                                                             </div>
-                                                            {member._id === chatDetails.groupAdmin?._id && (
-                                                                <span style={{ background: 'rgba(167,139,250,0.15)', color: '#a78bfa', borderRadius: 6, padding: '4px 8px', fontSize: 11, fontWeight: 700, border: '1px solid rgba(167,139,250,0.3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Admin</span>
-                                                            )}
+                                                            <div style={{ flex: 1, borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                                <div>
+                                                                    <p style={{ color: '#fff', fontSize: 16, fontWeight: 600, margin: 0 }}>{member.username} {isMe && "(You)"}</p>
+                                                                    <p style={{ color: member.isOnline ? '#22c55e' : '#6b7280', fontSize: 13, margin: 0, fontWeight: 500 }}>{member.isOnline ? "Online" : "Away"}</p>
+                                                                </div>
+                                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                                    {isAdmin && (
+                                                                        <span style={{ background: 'rgba(167,139,250,0.15)', color: '#a78bfa', borderRadius: 6, padding: '4px 8px', fontSize: 11, fontWeight: 700, border: '1px solid rgba(167,139,250,0.3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Admin</span>
+                                                                    )}
+                                                                    {amIAdmin && !isMe && (
+                                                                        <div style={{ position: 'relative' }}>
+                                                                            <button onClick={(e) => { e.stopPropagation(); setActiveParticipantMenu(activeParticipantMenu === memberId ? null : memberId) }}
+                                                                                style={{ background: 'none', border: 'none', color: '#8696a0', cursor: 'pointer', padding: 4 }}>
+                                                                                <MoreVertical size={20} />
+                                                                            </button>
+                                                                            {activeParticipantMenu === memberId && (
+                                                                                <div style={{ position: 'absolute', right: 0, top: '100%', background: '#23233b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.3)', zIndex: 10, width: 120, overflow: 'hidden' }}>
+                                                                                    <button onClick={() => handleRemoveUser(memberId)}
+                                                                                        style={{ width: '100%', background: 'none', border: 'none', padding: '10px 12px', color: '#ef4444', fontSize: 13, fontWeight: 600, textAlign: 'left', cursor: 'pointer' }}
+                                                                                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.05)'}
+                                                                                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                                                                                        Remove user
+                                                                                    </button>
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
                                                         </div>
-                                                    </div>
-                                                ))}
+                                                    );
+                                                })}
                                             </div>
                                         </div>
                                     )}
@@ -867,6 +921,5 @@ export default function ChatDashboard() {
                 </div>
             )}
         </>
-    )
+    );
 }
-

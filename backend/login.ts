@@ -1,7 +1,7 @@
 const baseurl = process.env.NEXT_PUBLIC_BASE_URL;
 
 export const loginUser = async (formData: any) => {
-    const response = await fetch(`${baseurl}/api/v1/auth/login`, {
+    const response = await fetch(`${baseurl}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
@@ -13,7 +13,7 @@ export const loginUser = async (formData: any) => {
 };
 
 export const logoutUser = async () => {
-    const response = await fetch(`${baseurl}/api/v1/auth/logout`, {
+    const response = await fetch(`${baseurl}/auth/logout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -30,7 +30,7 @@ export const getMe = async (token?: string) => {
         headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch(`${baseurl}/api/v1/auth/me`, {
+    const response = await fetch(`${baseurl}/auth/me`, {
         method: 'GET',
         headers,
         credentials: 'include',
@@ -47,7 +47,7 @@ export const changePassword = async (currentPassword: string, newPassword: strin
         headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch(`${baseurl}/api/v1/auth/change-password`, {
+    const response = await fetch(`${baseurl}/auth/change-password`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ currentPassword, newPassword }),
@@ -57,7 +57,7 @@ export const changePassword = async (currentPassword: string, newPassword: strin
     return data;
 };
 
-export const changeUsername = async (newUsername: string, token?: string) => {
+export const changeUsername = async (new_username: string, token?: string) => {
     const headers: any = {
         'Content-Type': 'application/json',
     };
@@ -65,10 +65,10 @@ export const changeUsername = async (newUsername: string, token?: string) => {
         headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch(`${baseurl}/api/v1/auth/change-username`, {
+    const response = await fetch(`${baseurl}/auth/change-username`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({ newUsername }),
+        body: JSON.stringify({ new_username }),
         credentials: 'include',
     });
     const data = await response.json();
@@ -84,7 +84,7 @@ export const updateProfilePicture = async (imageFile: File, token?: string) => {
         headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch(`${baseurl}/api/v1/auth/update-profile-picture`, {
+    const response = await fetch(`${baseurl}/auth/update-profile-picture`, {
         method: 'POST',
         headers,
         body: formData,
@@ -95,7 +95,7 @@ export const updateProfilePicture = async (imageFile: File, token?: string) => {
 };
 
 export const forgetPassword = async (email: string) => {
-    const response = await fetch(`${baseurl}/api/v1/auth/forgetpassword`, {
+    const response = await fetch(`${baseurl}/auth/forgetpassword`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
@@ -106,7 +106,7 @@ export const forgetPassword = async (email: string) => {
 };
 
 export const resetPassword = async (userId: string, token: string, newPassword: string) => {
-    const response = await fetch(`${baseurl}/api/v1/auth/reset-password/${userId}/${token}`, {
+    const response = await fetch(`${baseurl}/auth/reset-password/${userId}/${token}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ newPassword }),
@@ -117,7 +117,7 @@ export const resetPassword = async (userId: string, token: string, newPassword: 
 };
 
 export const registerUser = async (formData: any) => {
-    const response = await fetch(`${baseurl}/api/v1/auth/register`, {
+    const response = await fetch(`${baseurl}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(formData),
@@ -129,7 +129,7 @@ export const registerUser = async (formData: any) => {
 };
 
 export const verifyEmail = async (userId: string, token: string) => {
-    const response = await fetch(`${baseurl}/api/v1/auth/verify/${userId}/${token}`, {
+    const response = await fetch(`${baseurl}/auth/verify/${userId}/${token}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
