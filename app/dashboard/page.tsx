@@ -5,10 +5,10 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import {
     Loader2, Lock, User, CheckCircle2, AlertCircle, LogOut, Camera,
-    ShieldCheck, Settings, UserCircle, Key, Save, Shield
+    ShieldCheck, Settings, UserCircle, Key, Save, Shield, ArrowLeft
 } from 'lucide-react'
 import {
-    getMe, changePassword, changeUsername, updateProfilePicture, logoutUser
+    getMe, changePassword, changeUsername, updateProfilePicture, logoutUser, deleteUser
 } from '@/backend/login'
 
 type DashboardTab = 'overview' | 'edit-profile' | 'security'
@@ -135,12 +135,20 @@ export default function DashboardPage() {
             <div className='absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/20 rounded-full blur-[120px]'></div>
             <div className='absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-600/20 rounded-full blur-[120px]'></div>
 
-            <div className='w-full max-w-2xl z-10 animate-in fade-in slide-in-from-bottom-4 duration-700'>
+            <div className='w-full max-w-7xl z-10 animate-in fade-in slide-in-from-bottom-4 duration-700'>
                 <div className='bg-white/5 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl overflow-hidden'>
                     <div className='flex flex-col md:flex-row h-full'>
                         {/* Sidebar */}
-                        <div className='w-full md:w-64 bg-white/5 border-b md:border-b-0 md:border-r border-white/10 p-6 flex flex-col gap-2'>
-                            <div className='flex items-center gap-3 mb-8 px-2'>
+                        <div className='w-full md:w-80 bg-white/5 border-b md:border-b-0 md:border-r border-white/10 p-8 flex flex-col gap-2'>
+                            <button
+                                onClick={() => router.push('/')}
+                                className="flex items-center gap-2 text-xs text-gray-500 hover:text-white transition-colors mb-8 group"
+                            >
+                                <ArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+                                Back to Main
+                            </button>
+
+                            <div className='flex items-center gap-4 mb-10 px-2'>
                                 <div className='w-10 h-10 bg-blue-500 rounded-xl flex items-center justify-center'>
                                     <UserCircle className='w-6 h-6 text-white' />
                                 </div>
@@ -184,13 +192,20 @@ export default function DashboardPage() {
                         </div>
 
                         {/* Content */}
-                        <div className='flex-1 p-8 min-h-[500px]'>
-                            <h1 className='text-2xl font-bold mb-6 flex items-center gap-2'>
-                                {activeTab === 'overview' && <Settings className='w-6 h-6 text-blue-400' />}
-                                {activeTab === 'edit-profile' && <User className='w-6 h-6 text-blue-400' />}
-                                {activeTab === 'security' && <ShieldCheck className='w-6 h-6 text-blue-400' />}
-                                {activeTab.charAt(0).toUpperCase() + activeTab.slice(1).replace('-', ' ')}
-                            </h1>
+                        <div className='flex-1 p-12 min-h-[600px] bg-black/10'>
+                            <div className='mb-10'>
+                                <h1 className='text-4xl font-bold mb-2 flex items-center gap-4'>
+                                    {activeTab === 'overview' && <Settings className='w-10 h-10 text-blue-400' />}
+                                    {activeTab === 'edit-profile' && <User className='w-10 h-10 text-blue-400' />}
+                                    {activeTab === 'security' && <ShieldCheck className='w-10 h-10 text-blue-400' />}
+                                    {activeTab.charAt(0).toUpperCase() + activeTab.slice(1).replace('-', ' ')}
+                                </h1>
+                                <p className='text-gray-500 text-sm'>
+                                    {activeTab === 'overview' && 'Manage your account settings and profile information.'}
+                                    {activeTab === 'edit-profile' && 'Update your public identity and profile credentials.'}
+                                    {activeTab === 'security' && 'Secure your account with multi-factor authentication and strong passwords.'}
+                                </p>
+                            </div>
 
                             {(error || success) && (
                                 <div className={`mb-6 p-4 rounded-xl border flex items-center gap-3 text-sm animate-in fade-in slide-in-from-top-2 ${error ? 'bg-red-400/10 border-red-400/20 text-red-400' : 'bg-green-400/10 border-green-400/20 text-green-400'}`}>

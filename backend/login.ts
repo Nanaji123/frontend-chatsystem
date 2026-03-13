@@ -95,7 +95,7 @@ export const updateProfilePicture = async (imageFile: File, token?: string) => {
 };
 
 export const forgetPassword = async (email: string) => {
-    const response = await fetch(`${baseurl}/auth/forgetpassword`, {
+    const response = await fetch(`${baseurl}/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
@@ -109,7 +109,7 @@ export const resetPassword = async (userId: string, token: string, newPassword: 
     const response = await fetch(`${baseurl}/auth/reset-password/${userId}/${token}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newPassword }),
+        body: JSON.stringify({ new_password: newPassword }),
         credentials: 'include',
     });
     const data = await response.json();
@@ -131,6 +131,16 @@ export const registerUser = async (formData: any) => {
 export const verifyEmail = async (userId: string, token: string) => {
     const response = await fetch(`${baseurl}/auth/verify/${userId}/${token}`, {
         method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+    });
+    const data = await response.json();
+    return data;
+};
+
+export const deleteUser = async () => {
+    const response = await fetch(`${baseurl}/auth/delete-user`, {
+        method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
     });

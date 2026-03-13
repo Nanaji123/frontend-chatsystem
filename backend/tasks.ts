@@ -1,4 +1,4 @@
-const baseurl = "http://localhost:3001";
+const baseurl = "http://localhost:8000";
 
 export const addTask = async (taskData: {
     title: string,
@@ -7,7 +7,7 @@ export const addTask = async (taskData: {
     priority: string,
     category: string
 }) => {
-    const response = await fetch(`${baseurl}/api/v1/task/add-task`, {
+    const response = await fetch(`${baseurl}/task/add-task`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(taskData),
@@ -17,7 +17,7 @@ export const addTask = async (taskData: {
 };
 
 export const getAllTasks = async () => {
-    const response = await fetch(`${baseurl}/api/v1/task/get-tasks`, {
+    const response = await fetch(`${baseurl}/task/get-tasks`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -34,7 +34,7 @@ export const updateTask = async (taskData: {
     category?: string,
     status?: string
 }) => {
-    const response = await fetch(`${baseurl}/api/v1/task/update-task`, {
+    const response = await fetch(`${baseurl}/task/update-task`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(taskData),
@@ -45,7 +45,7 @@ export const updateTask = async (taskData: {
 };
 
 export const deleteTask = async (id: string) => {
-    const response = await fetch(`${baseurl}/api/v1/task/delete-task`, {
+    const response = await fetch(`${baseurl}/task/delete-task`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id }),
@@ -56,7 +56,7 @@ export const deleteTask = async (id: string) => {
 };
 
 export const markAsCompleted = async (id: string) => {
-    const response = await fetch(`${baseurl}/api/v1/task/mark-as-completed`, {
+    const response = await fetch(`${baseurl}/task/mark-as-completed`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id }),
