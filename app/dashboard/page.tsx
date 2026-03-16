@@ -8,15 +8,16 @@ import {
     ShieldCheck, Settings, UserCircle, Key, Save, Shield, ArrowLeft
 } from 'lucide-react'
 import {
-    getMe, changePassword, changeUsername, updateProfilePicture, logoutUser, deleteUser
+    changePassword, changeUsername, updateProfilePicture, deleteUser
 } from '@/backend/login'
+import { useAuth } from '@/context/AuthContext'
 
 type DashboardTab = 'overview' | 'edit-profile' | 'security'
 
 export default function DashboardPage() {
     const router = useRouter()
+    const { user, loading: authLoading, logout, refreshUser } = useAuth()
     const [activeTab, setActiveTab] = useState<DashboardTab>('overview')
-    const [user, setUser] = useState<{ username: string, email: string, profile_picture?: string } | null>(null)
 
     const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -33,32 +34,14 @@ export default function DashboardPage() {
     const [success, setSuccess] = useState<string | null>(null)
 
     useEffect(() => {
-        fetchUser()
-    }, [])
-
-    const fetchUser = async () => {
-        try {
-            setLoading(true)
-            const data = await getMe()
-            if (data.success) {
-                setUser(data.user)
-                setFormData(prev => ({ ...prev, updateUsername: data.user.username }))
-            } else {
-                localStorage.removeItem('token')
-                router.push('/')
-            }
-        } catch (err) {
-            router.push('/')
-        } finally {
-            setLoading(false)
+        if (user && !formData.updateUsername) {
+            setFormData(prev => ({ ...prev, updateUsername: user.username }))
         }
-    }
+    }, [user, formData.updateUsername])
 
     const handleLogout = async () => {
         try {
-            await logoutUser()
-            setUser(null)
-            router.push('/')
+            await logout()
         } catch (err) {
             setError('Logout failed')
         }
@@ -72,7 +55,7 @@ export default function DashboardPage() {
             const data = await changeUsername(formData.updateUsername)
             if (data.success) {
                 setSuccess('Username updated successfully!')
-                setUser(prev => prev ? { ...prev, username: formData.updateUsername } : null)
+                refreshUser()
             } else {
                 setError(data.message)
             }
@@ -117,7 +100,7 @@ export default function DashboardPage() {
             const data = await updateProfilePicture(file)
             if (data.success) {
                 setSuccess('Profile picture updated!')
-                setUser(prev => prev ? { ...prev, profile_picture: data.profile_picture } : null)
+                refreshUser()
             } else {
                 setError(data.message)
             }

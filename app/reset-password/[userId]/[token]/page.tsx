@@ -5,10 +5,13 @@ import { useParams, useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Loader2, Lock, CheckCircle2, AlertCircle } from 'lucide-react'
 import { resetPassword } from '@/backend/login'
+import { useAuth } from '@/context/AuthContext'
+import { useEffect } from 'react'
 
 export default function ResetPasswordPage() {
     const params = useParams()
     const router = useRouter()
+    const { user, loading: authLoading } = useAuth()
     const [formData, setFormData] = useState({
         newPassword: '',
         confirmPassword: ''
@@ -16,6 +19,12 @@ export default function ResetPasswordPage() {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [success, setSuccess] = useState(false)
+
+    useEffect(() => {
+        if (user && !authLoading) {
+            router.push('/home')
+        }
+    }, [user, authLoading, router])
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()

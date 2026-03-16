@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import {
@@ -8,39 +8,23 @@ import {
     ArrowRight, Globe, Lock, Shield, Activity, MessageSquare,
     Bot, Sparkles
 } from 'lucide-react'
-import { logoutUser, getMe } from '@/backend/login'
 import { getAllTasks } from '@/backend/tasks'
+import { useAuth } from '@/context/AuthContext'
 
 export default function HomePage() {
     const router = useRouter()
-    const [user, setUser] = useState<{ username: string, email: string, profile_picture?: string } | null>(null)
-    const [loading, setLoading] = useState(true)
+    const { user, loading, logout } = useAuth()
     const [error, setError] = useState<string | null>(null)
     const [tasks, setTasks] = useState<any[]>([])
     const [tasksLoading, setTasksLoading] = useState(false)
+    const hasFetched = useRef(false)
 
     useEffect(() => {
-        fetchUser()
-        fetchTasks()
-    }, [router])
-
-    const fetchUser = async () => {
-        try {
-            setLoading(true)
-            const data = await getMe()
-            if (data.success) {
-                setUser(data.user)
-            } else {
-                localStorage.removeItem('token')
-                router.push('/')
-            }
-        } catch (err) {
-            console.error('Error fetching user:', err)
-            router.push('/')
-        } finally {
-            setLoading(false)
+        if (!loading && user && !hasFetched.current) {
+            hasFetched.current = true
+            fetchTasks()
         }
-    }
+    }, [user, loading])
 
     const fetchTasks = async () => {
         try {
@@ -58,10 +42,7 @@ export default function HomePage() {
 
     const handleLogout = async () => {
         try {
-            await logoutUser()
-            localStorage.removeItem('token')
-            setUser(null)
-            router.push('/')
+            await logout()
         } catch (err) {
             setError('Logout failed')
         }

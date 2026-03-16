@@ -5,12 +5,20 @@ import { useParams, useRouter } from 'next/navigation'
 import { CheckCircle2, XCircle, Loader2 } from 'lucide-react'
 import { verifyEmail } from '@/backend/login'
 import { Button } from '@/components/ui/button'
+import { useAuth } from '@/context/AuthContext'
 
 export default function VerifyPage() {
     const params = useParams()
     const router = useRouter()
+    const { user, loading: authLoading } = useAuth()
     const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading')
     const [message, setMessage] = useState('Verifying your email...')
+
+    useEffect(() => {
+        if (user && !authLoading) {
+            router.push('/home')
+        }
+    }, [user, authLoading, router])
 
     useEffect(() => {
         const handleVerify = async () => {

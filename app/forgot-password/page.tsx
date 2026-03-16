@@ -5,13 +5,22 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Loader2, Mail, CheckCircle2, AlertCircle, ArrowLeft } from 'lucide-react'
 import { forgetPassword } from '@/backend/login'
+import { useAuth } from '@/context/AuthContext'
+import { useEffect } from 'react'
 
 export default function ForgotPasswordPage() {
     const router = useRouter()
+    const { user, loading: authLoading } = useAuth()
     const [email, setEmail] = useState('')
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [success, setSuccess] = useState<string | null>(null)
+
+    useEffect(() => {
+        if (user && !authLoading) {
+            router.push('/home')
+        }
+    }, [user, authLoading, router])
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()

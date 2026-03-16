@@ -10,7 +10,8 @@ import {
     Check, X
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { getMe, logoutUser } from '@/backend/login'
+import { logoutUser } from '@/backend/login'
+import { useAuth } from '@/context/AuthContext'
 import {
     searchUsers, getChats, createChat, deleteChat, getMessages, createGroupChat, getChatDetails, removeUserFromGroup
 } from '@/backend/chat'
@@ -19,8 +20,9 @@ const SOCKET_URL = "http://localhost:8000"
 
 export default function ChatDashboard() {
     const router = useRouter()
-    const [user, setUser] = useState<any>(null)
+    const { user, loading: authLoading, logout } = useAuth()
     const [loading, setLoading] = useState(true)
+    const hasFetched = useRef(false)
     const [socket, setSocket] = useState<any>(null)
     const [chats, setChats] = useState<any[]>([])
     const [activeChat, setActiveChat] = useState<any>(null)
@@ -65,24 +67,21 @@ export default function ChatDashboard() {
     }, [])
 
     useEffect(() => {
-        fetchInitialData()
-    }, [])
+        if (!authLoading && user && !hasFetched.current) {
+            hasFetched.current = true
+            fetchInitialData()
+        }
+    }, [user, authLoading])
 
     const fetchInitialData = async () => {
         try {
-            const userData = await getMe()
-            if (userData.success) {
-                setUser(userData.user)
-                const chatData = await getChats()
-                if (chatData.success) {
-                    setChats(chatData.chats)
-                }
-                initSocket()
-            } else {
-                router.push('/')
+            const chatData = await getChats()
+            if (chatData.success) {
+                setChats(chatData.chats)
             }
+            initSocket()
         } catch (err) {
-            router.push('/')
+            console.error("Initial data fetch error:", err)
         } finally {
             setLoading(false)
         }
@@ -446,7 +445,7 @@ export default function ChatDashboard() {
                                         <div style={{ position: 'relative' }}
                                             onMouseEnter={e => { if (!isActive) (e.currentTarget.querySelector('.chat-row') as HTMLElement)!.style.background = 'rgba(255,255,255,0.05)' }}
                                             onMouseLeave={e => { if (!isActive) (e.currentTarget.querySelector('.chat-row') as HTMLElement)!.style.background = 'transparent' }}>
-                                            <button className="chat-row" onClick={() => {
+                                            <div className="chat-row" onClick={() => {
                                                 setActiveChat(chat)
                                                 setUnreadCounts(prev => ({ ...prev, [chat._id]: 0 }))
                                             }}
@@ -476,7 +475,7 @@ export default function ChatDashboard() {
                                                         {chat.latestMessage ? (chat.latestMessage.content || chat.latestMessage._doc?.content || 'New message') : 'No messages yet'}
                                                     </p>
                                                 </div>
-                                            </button>
+                                            </div>
                                             <button onClick={(e) => { e.stopPropagation(); handleDeleteChat(chat._id) }}
                                                 style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'rgba(239,68,68,0.1)', border: 'none', borderRadius: 6, padding: '4px 6px', cursor: 'pointer', color: '#ef4444', opacity: 0, transition: 'opacity 0.2s' }}
                                                 className="delete-chat-btn">
@@ -503,7 +502,7 @@ export default function ChatDashboard() {
                             </div>
                         </div>
                         <button
-                            onClick={async () => { await logoutUser(); router.push('/') }}
+                            onClick={logout}
                             title="Logout"
                             style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.25)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', color: '#f87171', fontSize: 13, fontWeight: 600 }}
                             onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = 'rgba(239,68,68,0.25)' }}
@@ -513,136 +512,142 @@ export default function ChatDashboard() {
                             Logout
                         </button>
                     </div>
-                </aside>
+                </aside >
 
                 {/* ─── MAIN CHAT AREA ─── */}
-                <main style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#0c0c0e', position: 'relative', overflow: 'hidden' }}>
+                < main style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#0c0c0e', position: 'relative', overflow: 'hidden' }
+                }>
 
-                    {activeChat ? (
-                        <>
-                            {/* Chat Header */}
-                            <header style={{ height: 64, background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(20px)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0, zIndex: 10 }}>
-                                <div onClick={fetchChatDetails}
-                                    style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
-                                    <div style={{ width: 42, height: 42, borderRadius: '50%', overflow: 'hidden', background: activeChat.isGroupChat ? 'rgba(167,139,250,0.1)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                        {getChatAvatar(activeChat)
-                                            ? <img src={getChatAvatar(activeChat)!} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                            : (activeChat.isGroupChat ? <Users size={20} color="#a78bfa" /> : <User size={20} color="#6b7280" />)}
+                    {
+                        activeChat ? (
+                            <>
+                                {/* Chat Header */}
+                                < header style={{ height: 64, background: 'rgba(0,0,0,0.3)', backdropFilter: 'blur(20px)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0, zIndex: 10 }}>
+                                    <div onClick={fetchChatDetails}
+                                        style={{ display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer' }}>
+                                        <div style={{ width: 42, height: 42, borderRadius: '50%', overflow: 'hidden', background: activeChat.isGroupChat ? 'rgba(167,139,250,0.1)' : 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                            {getChatAvatar(activeChat)
+                                                ? <img src={getChatAvatar(activeChat)!} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                : (activeChat.isGroupChat ? <Users size={20} color="#a78bfa" /> : <User size={20} color="#6b7280" />)}
+                                        </div>
+                                        <div>
+                                            <p style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{getChatName(activeChat)}</p>
+                                            <p style={{ color: activeChat.isGroupChat ? '#a78bfa' : '#22c55e', fontSize: 12, fontWeight: 500 }}>
+                                                {activeChat.isGroupChat ? "Click for group info" : "Online"}
+                                            </p>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <p style={{ color: '#fff', fontWeight: 700, fontSize: 15 }}>{getChatName(activeChat)}</p>
-                                        <p style={{ color: activeChat.isGroupChat ? '#a78bfa' : '#22c55e', fontSize: 12, fontWeight: 500 }}>
-                                            {activeChat.isGroupChat ? "Click for group info" : "Online"}
-                                        </p>
+                                    <div style={{ display: 'flex', gap: 4 }}>
+                                        <button style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 8, borderRadius: '50%', color: '#6b7280' }}><Search size={20} /></button>
+                                        <button style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 8, borderRadius: '50%', color: '#6b7280' }}><MoreVertical size={20} /></button>
                                     </div>
-                                </div>
-                                <div style={{ display: 'flex', gap: 4 }}>
-                                    <button style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 8, borderRadius: '50%', color: '#6b7280' }}><Search size={20} /></button>
-                                    <button style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 8, borderRadius: '50%', color: '#6b7280' }}><MoreVertical size={20} /></button>
-                                </div>
-                            </header>
+                                </header >
 
-                            {/* Messages */}
-                            <div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 8%', display: 'flex', flexDirection: 'column', gap: 2 }}>
-                                {messages.length === 0 ? (
-                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#8696a0', gap: 12, opacity: 0.6 }}>
-                                        <MessageSquare size={48} />
-                                        <p style={{ fontSize: 14 }}>No messages yet. Say hi! 👋</p>
-                                    </div>
-                                ) : (
-                                    messages.map((msg, i) => {
-                                        const isOwn = msg.isMine === true
-                                        const prevMsg = messages[i - 1]
-                                        const isSameSenderAsPrev = prevMsg && prevMsg.sender?._id === msg.sender?._id
-                                        return (
-                                            <div key={msg._id || i} style={{ display: 'flex', flexDirection: isOwn ? 'row-reverse' : 'row', alignItems: 'flex-end', gap: 8, width: '100%', marginTop: isSameSenderAsPrev ? 2 : 10 }}>
-                                                {/* Avatar — shown for ALL messages */}
-                                                <div style={{ width: 30, height: 30, borderRadius: '50%', overflow: 'hidden', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-end', marginBottom: 2 }}>
-                                                    {msg.sender?.profile_picture ? <img src={msg.sender.profile_picture} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <User size={14} color="#6b7280" />}
-                                                </div>
+                                {/* Messages */}
+                                < div ref={scrollRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 8%', display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                    {
+                                        messages.length === 0 ? (
+                                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#8696a0', gap: 12, opacity: 0.6 }}>
+                                                <MessageSquare size={48} />
+                                                <p style={{ fontSize: 14 }}>No messages yet. Say hi! 👋</p>
+                                            </div>
+                                        ) : (
+                                            messages.map((msg, i) => {
+                                                const isOwn = msg.isMine === true
+                                                const prevMsg = messages[i - 1]
+                                                const isSameSenderAsPrev = prevMsg && prevMsg.sender?._id === msg.sender?._id
+                                                return (
+                                                    <div key={msg._id || i} style={{ display: 'flex', flexDirection: isOwn ? 'row-reverse' : 'row', alignItems: 'flex-end', gap: 8, width: '100%', marginTop: isSameSenderAsPrev ? 2 : 10 }}>
+                                                        {/* Avatar — shown for ALL messages */}
+                                                        <div style={{ width: 30, height: 30, borderRadius: '50%', overflow: 'hidden', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-end', marginBottom: 2 }}>
+                                                            {msg.sender?.profile_picture ? <img src={msg.sender.profile_picture} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <User size={14} color="#6b7280" />}
+                                                        </div>
 
-                                                {/* Bubble */}
-                                                <div style={{ maxWidth: '65%', display: 'flex', flexDirection: 'column', alignItems: isOwn ? 'flex-end' : 'flex-start' }}>
-                                                    {/* Sender name for other users */}
-                                                    {!isOwn && !isSameSenderAsPrev && (
-                                                        <span style={{ fontSize: 12, fontWeight: 600, color: '#60a5fa', marginBottom: 2, paddingLeft: 12 }}>{msg.sender?.username}</span>
-                                                    )}
-                                                    <div style={{
-                                                        padding: '8px 14px 6px',
-                                                        borderRadius: isOwn ? '18px 4px 18px 18px' : '4px 18px 18px 18px',
-                                                        background: isOwn ? '#2563eb' : 'rgba(255,255,255,0.06)',
-                                                        border: isOwn ? 'none' : '1px solid rgba(255,255,255,0.08)',
-                                                        color: '#e9edef',
-                                                        fontSize: 14,
-                                                        lineHeight: 1.5,
-                                                        wordBreak: 'break-word',
-                                                        position: 'relative',
-                                                        boxShadow: '0 1px 2px rgba(0,0,0,0.3)',
-                                                        minWidth: 60,
-                                                    }}>
-                                                        {msg.content}
-                                                        {/* Time + tick */}
-                                                        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3, marginTop: 3 }}>
-                                                            <span style={{ fontSize: 10, color: isOwn ? 'rgba(255,255,255,0.5)' : '#6b7280' }}>
-                                                                {new Date(msg.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                            </span>
-                                                            {isOwn && <Check size={12} color="rgba(255,255,255,0.5)" />}
-                                                        </span>
+                                                        {/* Bubble */}
+                                                        <div style={{ maxWidth: '65%', display: 'flex', flexDirection: 'column', alignItems: isOwn ? 'flex-end' : 'flex-start' }}>
+                                                            {/* Sender name for other users */}
+                                                            {!isOwn && !isSameSenderAsPrev && (
+                                                                <span style={{ fontSize: 12, fontWeight: 600, color: '#60a5fa', marginBottom: 2, paddingLeft: 12 }}>{msg.sender?.username}</span>
+                                                            )}
+                                                            <div style={{
+                                                                padding: '8px 14px 6px',
+                                                                borderRadius: isOwn ? '18px 4px 18px 18px' : '4px 18px 18px 18px',
+                                                                background: isOwn ? '#2563eb' : 'rgba(255,255,255,0.06)',
+                                                                border: isOwn ? 'none' : '1px solid rgba(255,255,255,0.08)',
+                                                                color: '#e9edef',
+                                                                fontSize: 14,
+                                                                lineHeight: 1.5,
+                                                                wordBreak: 'break-word',
+                                                                position: 'relative',
+                                                                boxShadow: '0 1px 2px rgba(0,0,0,0.3)',
+                                                                minWidth: 60,
+                                                            }}>
+                                                                {msg.content}
+                                                                {/* Time + tick */}
+                                                                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3, marginTop: 3 }}>
+                                                                    <span style={{ fontSize: 10, color: isOwn ? 'rgba(255,255,255,0.5)' : '#6b7280' }}>
+                                                                        {new Date(msg.createdAt || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                                    </span>
+                                                                    {isOwn && <Check size={12} color="rgba(255,255,255,0.5)" />}
+                                                                </span>
+                                                            </div>
+                                                        </div>
                                                     </div>
+                                                )
+                                            })
+                                        )
+                                    }
+
+                                    {/* Typing indicator */}
+                                    {
+                                        isTyping && (
+                                            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginTop: 10 }}>
+                                                <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', flexShrink: 0 }} />
+                                                <div style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '4px 18px 18px 18px', padding: '12px 16px', display: 'flex', gap: 4 }}>
+                                                    <span style={{ width: 6, height: 6, background: '#6b7280', borderRadius: '50%', animation: 'bounce 1.2s infinite' }} />
+                                                    <span style={{ width: 6, height: 6, background: '#6b7280', borderRadius: '50%', animation: 'bounce 1.2s 0.2s infinite' }} />
+                                                    <span style={{ width: 6, height: 6, background: '#6b7280', borderRadius: '50%', animation: 'bounce 1.2s 0.4s infinite' }} />
                                                 </div>
                                             </div>
                                         )
-                                    })
-                                )}
+                                    }
+                                </div >
 
-                                {/* Typing indicator */}
-                                {isTyping && (
-                                    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginTop: 10 }}>
-                                        <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', flexShrink: 0 }} />
-                                        <div style={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '4px 18px 18px 18px', padding: '12px 16px', display: 'flex', gap: 4 }}>
-                                            <span style={{ width: 6, height: 6, background: '#6b7280', borderRadius: '50%', animation: 'bounce 1.2s infinite' }} />
-                                            <span style={{ width: 6, height: 6, background: '#6b7280', borderRadius: '50%', animation: 'bounce 1.2s 0.2s infinite' }} />
-                                            <span style={{ width: 6, height: 6, background: '#6b7280', borderRadius: '50%', animation: 'bounce 1.2s 0.4s infinite' }} />
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Input Bar */}
-                            <div style={{ padding: '8px 16px', background: '#202c33', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, borderTop: '1px solid #2a3942' }}>
-                                <button style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 8, color: '#8696a0', borderRadius: '50%', display: 'flex', alignItems: 'center' }}>
-                                    <Smile size={24} />
-                                </button>
-                                <button style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 8, color: '#8696a0', borderRadius: '50%', display: 'flex', alignItems: 'center' }}>
-                                    <Paperclip size={24} />
-                                </button>
-                                <form onSubmit={sendMessage} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-                                    <input
-                                        value={input}
-                                        onChange={(e) => setInput(e.target.value)}
-                                        onKeyDown={handleTyping}
-                                        placeholder="Type a message"
-                                        style={{ flex: 1, background: '#2a3942', border: 'none', outline: 'none', color: '#e9edef', fontSize: 15, padding: '10px 16px', borderRadius: 8 }}
-                                    />
-                                    <button type="submit" disabled={!input.trim()}
-                                        style={{ width: 44, height: 44, borderRadius: '50%', background: input.trim() ? '#00a884' : '#2a3942', border: 'none', cursor: input.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 0.2s' }}>
-                                        <Send size={20} color={input.trim() ? '#fff' : '#8696a0'} />
+                                {/* Input Bar */}
+                                < div style={{ padding: '8px 16px', background: '#202c33', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, borderTop: '1px solid #2a3942' }}>
+                                    <button style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 8, color: '#8696a0', borderRadius: '50%', display: 'flex', alignItems: 'center' }}>
+                                        <Smile size={24} />
                                     </button>
-                                </form>
+                                    <button style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 8, color: '#8696a0', borderRadius: '50%', display: 'flex', alignItems: 'center' }}>
+                                        <Paperclip size={24} />
+                                    </button>
+                                    <form onSubmit={sendMessage} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+                                        <input
+                                            value={input}
+                                            onChange={(e) => setInput(e.target.value)}
+                                            onKeyDown={handleTyping}
+                                            placeholder="Type a message"
+                                            style={{ flex: 1, background: '#2a3942', border: 'none', outline: 'none', color: '#e9edef', fontSize: 15, padding: '10px 16px', borderRadius: 8 }}
+                                        />
+                                        <button type="submit" disabled={!input.trim()}
+                                            style={{ width: 44, height: 44, borderRadius: '50%', background: input.trim() ? '#00a884' : '#2a3942', border: 'none', cursor: input.trim() ? 'pointer' : 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background 0.2s' }}>
+                                            <Send size={20} color={input.trim() ? '#fff' : '#8696a0'} />
+                                        </button>
+                                    </form>
+                                </div >
+                            </>
+                        ) : (
+                            /* No chat selected — WhatsApp-style welcome */
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#8696a0', textAlign: 'center', gap: 16 }}>
+                                <MessageSquare size={80} color="#2a3942" />
+                                <div>
+                                    <h2 style={{ color: '#e9edef', fontSize: 28, fontWeight: 300, marginBottom: 8 }}>WhatsApp Web</h2>
+                                    <p style={{ fontSize: 14, color: '#8696a0', maxWidth: 340 }}>
+                                        Send and receive messages without keeping your phone online.
+                                    </p>
+                                </div>
                             </div>
-                        </>
-                    ) : (
-                        /* No chat selected — WhatsApp-style welcome */
-                        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', color: '#8696a0', textAlign: 'center', gap: 16 }}>
-                            <MessageSquare size={80} color="#2a3942" />
-                            <div>
-                                <h2 style={{ color: '#e9edef', fontSize: 28, fontWeight: 300, marginBottom: 8 }}>WhatsApp Web</h2>
-                                <p style={{ fontSize: 14, color: '#8696a0', maxWidth: 340 }}>
-                                    Send and receive messages without keeping your phone online.
-                                </p>
-                            </div>
-                        </div>
-                    )}
+                        )}
 
                     <style>{`
                     @keyframes bounce {
@@ -655,271 +660,275 @@ export default function ChatDashboard() {
                     ::-webkit-scrollbar-track { background: transparent; }
                     ::-webkit-scrollbar-thumb { background: #2a3942; border-radius: 3px; }
                 `}</style>
-                </main>
-            </div>
+                </main >
+            </div >
 
             {/* ── Create Group Modal ── */}
-            {showGroupModal && (
-                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                    onClick={() => setShowGroupModal(false)}>
-                    <div style={{ background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 28, width: 420, maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: 16, boxShadow: '0 24px 60px rgba(0,0,0,0.6)' }}
-                        onClick={e => e.stopPropagation()}>
+            {
+                showGroupModal && (
+                    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        onClick={() => setShowGroupModal(false)}>
+                        <div style={{ background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 16, padding: 28, width: 420, maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: 16, boxShadow: '0 24px 60px rgba(0,0,0,0.6)' }}
+                            onClick={e => e.stopPropagation()}>
 
-                        {/* Modal header */}
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                                <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(167,139,250,0.15)', border: '1px solid rgba(167,139,250,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    <Users size={18} color="#a78bfa" />
-                                </div>
-                                <span style={{ color: '#fff', fontWeight: 700, fontSize: 17 }}>New Group Chat</span>
-                            </div>
-                            <button onClick={() => setShowGroupModal(false)}
-                                style={{ background: 'rgba(255,255,255,0.05)', border: 'none', borderRadius: 8, padding: 6, cursor: 'pointer', color: '#6b7280' }}>
-                                <X size={18} />
-                            </button>
-                        </div>
-
-                        {/* Group name input */}
-                        <div>
-                            <label style={{ display: 'block', color: '#6b7280', fontSize: 12, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Group Name</label>
-                            <input
-                                value={groupName}
-                                onChange={e => setGroupName(e.target.value)}
-                                placeholder="e.g. Project Team, Friends..."
-                                style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '10px 14px', color: '#fff', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
-                            />
-                        </div>
-
-                        {/* Group profile picture input */}
-                        <div>
-                            <label style={{ display: 'block', color: '#6b7280', fontSize: 12, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Group Profile Picture</label>
-                            <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                                <div style={{ width: 60, height: 60, borderRadius: 12, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', position: 'relative' }}>
-                                    {groupFile ? (
-                                        <img src={URL.createObjectURL(groupFile)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                    ) : groupProfilePic ? (
-                                        <img src={groupProfilePic} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                    ) : (
-                                        <Users size={28} color="#6b7280" />
-                                    )}
-                                </div>
-                                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                    <div style={{ display: 'flex', gap: 8 }}>
-                                        <label style={{ background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', color: '#60a5fa', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                            <Paperclip size={14} /> Upload Image
-                                            <input
-                                                type="file"
-                                                accept="image/*"
-                                                onChange={e => {
-                                                    const file = e.target.files?.[0]
-                                                    if (file) {
-                                                        setGroupFile(file)
-                                                        setGroupProfilePic('')
-                                                    }
-                                                }}
-                                                style={{ display: 'none' }}
-                                            />
-                                        </label>
-                                        {(groupFile || groupProfilePic) && (
-                                            <button
-                                                onClick={() => { setGroupFile(null); setGroupProfilePic('') }}
-                                                style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: '#ef4444' }}
-                                            >
-                                                <X size={14} />
-                                            </button>
-                                        )}
+                            {/* Modal header */}
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                    <div style={{ width: 36, height: 36, borderRadius: 10, background: 'rgba(167,139,250,0.15)', border: '1px solid rgba(167,139,250,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <Users size={18} color="#a78bfa" />
                                     </div>
-                                    <input
-                                        value={groupProfilePic}
-                                        onChange={e => { setGroupProfilePic(e.target.value); setGroupFile(null) }}
-                                        placeholder="Or paste image URL..."
-                                        style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '8px 12px', color: '#fff', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
-                                    />
+                                    <span style={{ color: '#fff', fontWeight: 700, fontSize: 17 }}>New Group Chat</span>
                                 </div>
+                                <button onClick={() => setShowGroupModal(false)}
+                                    style={{ background: 'rgba(255,255,255,0.05)', border: 'none', borderRadius: 8, padding: 6, cursor: 'pointer', color: '#6b7280' }}>
+                                    <X size={18} />
+                                </button>
                             </div>
-                        </div>
 
-                        {/* Search users for group */}
-                        <div>
-                            <label style={{ display: 'block', color: '#6b7280', fontSize: 12, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Add Members (min 2)</label>
-                            <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, display: 'flex', alignItems: 'center', padding: '8px 12px', gap: 8 }}>
-                                <Search size={14} color="#6b7280" />
+                            {/* Group name input */}
+                            <div>
+                                <label style={{ display: 'block', color: '#6b7280', fontSize: 12, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Group Name</label>
                                 <input
-                                    value={groupUserSearch}
-                                    onChange={e => { setGroupUserSearch(e.target.value); searchGroupUsers(e.target.value) }}
-                                    placeholder="Search users..."
-                                    style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 14 }}
+                                    value={groupName}
+                                    onChange={e => setGroupName(e.target.value)}
+                                    placeholder="e.g. Project Team, Friends..."
+                                    style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '10px 14px', color: '#fff', fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
                                 />
                             </div>
 
-                            {/* Search results */}
-                            {groupUserResults.length > 0 && (
-                                <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, marginTop: 6, maxHeight: 160, overflowY: 'auto' }}>
-                                    {groupUserResults.map(u => {
-                                        const selected = !!selectedGroupUsers.find(x => x._id === u._id)
-                                        return (
-                                            <button key={u._id} onClick={() => toggleGroupUser(u)}
-                                                style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', background: selected ? 'rgba(167,139,250,0.1)' : 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
-                                                <div style={{ width: 32, height: 32, borderRadius: '50%', overflow: 'hidden', background: 'rgba(255,255,255,0.07)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                                    {u.profile_picture ? <img src={u.profile_picture} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <User size={14} color="#6b7280" />}
-                                                </div>
-                                                <span style={{ color: selected ? '#a78bfa' : '#e9edef', fontSize: 14, fontWeight: selected ? 600 : 400 }}>{u.username}</span>
-                                                {selected && <span style={{ marginLeft: 'auto', color: '#a78bfa', fontSize: 12 }}>✓ Added</span>}
-                                            </button>
-                                        )
-                                    })}
+                            {/* Group profile picture input */}
+                            <div>
+                                <label style={{ display: 'block', color: '#6b7280', fontSize: 12, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Group Profile Picture</label>
+                                <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+                                    <div style={{ width: 60, height: 60, borderRadius: 12, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', position: 'relative' }}>
+                                        {groupFile ? (
+                                            <img src={URL.createObjectURL(groupFile)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                        ) : groupProfilePic ? (
+                                            <img src={groupProfilePic} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                        ) : (
+                                            <Users size={28} color="#6b7280" />
+                                        )}
+                                    </div>
+                                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                        <div style={{ display: 'flex', gap: 8 }}>
+                                            <label style={{ background: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.3)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', color: '#60a5fa', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                <Paperclip size={14} /> Upload Image
+                                                <input
+                                                    type="file"
+                                                    accept="image/*"
+                                                    onChange={e => {
+                                                        const file = e.target.files?.[0]
+                                                        if (file) {
+                                                            setGroupFile(file)
+                                                            setGroupProfilePic('')
+                                                        }
+                                                    }}
+                                                    style={{ display: 'none' }}
+                                                />
+                                            </label>
+                                            {(groupFile || groupProfilePic) && (
+                                                <button
+                                                    onClick={() => { setGroupFile(null); setGroupProfilePic('') }}
+                                                    style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', color: '#ef4444' }}
+                                                >
+                                                    <X size={14} />
+                                                </button>
+                                            )}
+                                        </div>
+                                        <input
+                                            value={groupProfilePic}
+                                            onChange={e => { setGroupProfilePic(e.target.value); setGroupFile(null) }}
+                                            placeholder="Or paste image URL..."
+                                            style={{ width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10, padding: '8px 12px', color: '#fff', fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+                                        />
+                                    </div>
                                 </div>
-                            )}
+                            </div>
 
-                            {/* Selected chips */}
-                            {selectedGroupUsers.length > 0 && (
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
-                                    {selectedGroupUsers.map(u => (
-                                        <span key={u._id} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(167,139,250,0.15)', border: '1px solid rgba(167,139,250,0.3)', borderRadius: 20, padding: '4px 10px 4px 8px', fontSize: 13, color: '#a78bfa' }}>
-                                            {u.username}
-                                            <button onClick={() => toggleGroupUser(u)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#a78bfa', display: 'flex' }}><X size={12} /></button>
-                                        </span>
-                                    ))}
+                            {/* Search users for group */}
+                            <div>
+                                <label style={{ display: 'block', color: '#6b7280', fontSize: 12, fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Add Members (min 2)</label>
+                                <div style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, display: 'flex', alignItems: 'center', padding: '8px 12px', gap: 8 }}>
+                                    <Search size={14} color="#6b7280" />
+                                    <input
+                                        value={groupUserSearch}
+                                        onChange={e => { setGroupUserSearch(e.target.value); searchGroupUsers(e.target.value) }}
+                                        placeholder="Search users..."
+                                        style={{ flex: 1, background: 'none', border: 'none', outline: 'none', color: '#fff', fontSize: 14 }}
+                                    />
                                 </div>
-                            )}
-                        </div>
 
-                        {/* Create button */}
-                        <button
-                            onClick={handleCreateGroup}
-                            disabled={!groupName.trim() || selectedGroupUsers.length < 2 || creatingGroup}
-                            style={{ background: selectedGroupUsers.length >= 2 && groupName.trim() ? 'linear-gradient(135deg, #7c3aed, #a78bfa)' : 'rgba(255,255,255,0.05)', border: 'none', borderRadius: 10, padding: '12px', cursor: selectedGroupUsers.length >= 2 && groupName.trim() ? 'pointer' : 'default', color: selectedGroupUsers.length >= 2 && groupName.trim() ? '#fff' : '#6b7280', fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'all 0.2s' }}>
-                            {creatingGroup ? <Loader2 size={18} className="animate-spin" /> : <><Users size={16} /> Create Group</>}
-                        </button>
-                    </div>
-                </div>
-            )}
-            {/* ── Chat Details Modal (Premium Theme) ── */}
-            {showDetailsModal && (
-                <div style={{ position: 'fixed', inset: 0, background: 'rgba(10,10,11,0.6)', backdropFilter: 'blur(12px)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-                    onClick={() => { setShowDetailsModal(false); setChatDetails(null) }}>
-                    <div style={{ background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 24, width: 450, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 80px rgba(0,0,0,0.6)' }}
-                        onClick={e => e.stopPropagation()}>
+                                {/* Search results */}
+                                {groupUserResults.length > 0 && (
+                                    <div style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 10, marginTop: 6, maxHeight: 160, overflowY: 'auto' }}>
+                                        {groupUserResults.map(u => {
+                                            const selected = !!selectedGroupUsers.find(x => x._id === u._id)
+                                            return (
+                                                <button key={u._id} onClick={() => toggleGroupUser(u)}
+                                                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px', background: selected ? 'rgba(167,139,250,0.1)' : 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+                                                    <div style={{ width: 32, height: 32, borderRadius: '50%', overflow: 'hidden', background: 'rgba(255,255,255,0.07)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                        {u.profile_picture ? <img src={u.profile_picture} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <User size={14} color="#6b7280" />}
+                                                    </div>
+                                                    <span style={{ color: selected ? '#a78bfa' : '#e9edef', fontSize: 14, fontWeight: selected ? 600 : 400 }}>{u.username}</span>
+                                                    {selected && <span style={{ marginLeft: 'auto', color: '#a78bfa', fontSize: 12 }}>✓ Added</span>}
+                                                </button>
+                                            )
+                                        })}
+                                    </div>
+                                )}
 
-                        {/* Modal Header */}
-                        <div style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 15, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                            <button onClick={() => { setShowDetailsModal(false); setChatDetails(null) }}
-                                style={{ background: 'none', border: 'none', color: '#8696a0', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                                <X size={22} />
+                                {/* Selected chips */}
+                                {selectedGroupUsers.length > 0 && (
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
+                                        {selectedGroupUsers.map(u => (
+                                            <span key={u._id} style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(167,139,250,0.15)', border: '1px solid rgba(167,139,250,0.3)', borderRadius: 20, padding: '4px 10px 4px 8px', fontSize: 13, color: '#a78bfa' }}>
+                                                {u.username}
+                                                <button onClick={() => toggleGroupUser(u)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#a78bfa', display: 'flex' }}><X size={12} /></button>
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Create button */}
+                            <button
+                                onClick={handleCreateGroup}
+                                disabled={!groupName.trim() || selectedGroupUsers.length < 2 || creatingGroup}
+                                style={{ background: selectedGroupUsers.length >= 2 && groupName.trim() ? 'linear-gradient(135deg, #7c3aed, #a78bfa)' : 'rgba(255,255,255,0.05)', border: 'none', borderRadius: 10, padding: '12px', cursor: selectedGroupUsers.length >= 2 && groupName.trim() ? 'pointer' : 'default', color: selectedGroupUsers.length >= 2 && groupName.trim() ? '#fff' : '#6b7280', fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, transition: 'all 0.2s' }}>
+                                {creatingGroup ? <Loader2 size={18} className="animate-spin" /> : <><Users size={16} /> Create Group</>}
                             </button>
-                            <span style={{ color: '#e9edef', fontSize: 18, fontWeight: 600 }}>{activeChat?.isGroupChat ? 'Group info' : 'Contact info'}</span>
-                        </div>
-
-                        {/* Modal Content Scrollable */}
-                        <div style={{ flex: 1, overflowY: 'auto', background: '#161625' }}>
-                            {detailsLoading ? (
-                                <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                                    <Loader2 size={32} className="animate-spin" color="#a78bfa" />
-                                </div>
-                            ) : chatDetails ? (
-                                <>
-                                    {/* Big Profile Pic Section */}
-                                    <div style={{ background: '#1a1a2e', padding: '28px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 }}>
-                                        <div style={{ width: 200, height: 200, borderRadius: '50%', overflow: 'hidden', background: activeChat?.isGroupChat ? 'rgba(167,139,250,0.1)' : 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 10px 40px rgba(0,0,0,0.4)', border: '2px solid rgba(167,139,250,0.2)' }}>
-                                            {getChatAvatar(activeChat) ? (
-                                                <img src={getChatAvatar(activeChat)!} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                            ) : (
-                                                activeChat?.isGroupChat ? <Users size={100} color="#a78bfa" /> : <User size={100} color="#8696a0" />
-                                            )}
-                                        </div>
-                                        <div style={{ textAlign: 'center' }}>
-                                            <h2 style={{ color: '#fff', fontSize: 24, fontWeight: 700, margin: 0, letterSpacing: '-0.02em' }}>{chatDetails.chatName || chatDetails.user?.username}</h2>
-                                            {activeChat?.isGroupChat && (
-                                                <p style={{ color: '#a78bfa', fontSize: 16, marginTop: 4, fontWeight: 500 }}>Group • {chatDetails.totalMembers} members</p>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Description / Status Section */}
-                                    <div style={{ background: '#1a1a2e', marginTop: 10, padding: '20px' }}>
-                                        <label style={{ display: 'block', color: '#a78bfa', fontSize: 13, fontWeight: 700, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{activeChat?.isGroupChat ? 'Description' : 'About'}</label>
-                                        <p style={{ color: '#e9edef', fontSize: 16, margin: 0, lineHeight: 1.6 }}>
-                                            {chatDetails.groupDescription || (activeChat?.isGroupChat ? "No description provided." : "Hey there! I am using this chatapp.")}
-                                        </p>
-                                        <p style={{ color: '#6b7280', fontSize: 13, marginTop: 12 }}>
-                                            Created {new Date(chatDetails.createdAt).toLocaleDateString()}
-                                        </p>
-                                    </div>
-
-                                    {/* Members Section (Groups Only) */}
-                                    {activeChat?.isGroupChat && (
-                                        <div style={{ background: '#1a1a2e', marginTop: 10, paddingBottom: 20 }}>
-                                            <div style={{ padding: '20px 20px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                <label style={{ color: '#a78bfa', fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{chatDetails.totalMembers} participants</label>
-                                                <Search size={18} color="#6b7280" />
-                                            </div>
-                                            <div>
-                                                {chatDetails.members?.map((member: any) => {
-                                                    const memberId = (member._id || member.id || member?.id)?.toString();
-                                                    const currentUserId = (user?._id || user?.id || user?.uid)?.toString();
-                                                    const adminId = (chatDetails.groupAdmin?._id || chatDetails.groupAdmin?.id || chatDetails.groupAdmin)?.toString();
-                                                    const isMe = memberId === currentUserId;
-                                                    const isAdmin = memberId === adminId;
-                                                    const amIAdmin = currentUserId === adminId;
-
-                                                    return (
-                                                        <div key={memberId} style={{ display: 'flex', alignItems: 'center', gap: 15, padding: '12px 20px', cursor: 'pointer', transition: 'background 0.2s' }}
-                                                            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
-                                                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                                                            <div style={{ width: 44, height: 44, borderRadius: '50%', overflow: 'hidden', background: 'rgba(255,255,255,0.05)', flexShrink: 0, border: '1px solid rgba(255,255,255,0.1)' }}>
-                                                                {member.profile_picture ? <img src={member.profile_picture} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <User size={22} color="#6b7280" style={{ margin: 11 }} />}
-                                                            </div>
-                                                            <div style={{ flex: 1, borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                                <div>
-                                                                    <p style={{ color: '#fff', fontSize: 16, fontWeight: 600, margin: 0 }}>{member.username} {isMe && "(You)"}</p>
-                                                                    <p style={{ color: member.isOnline ? '#22c55e' : '#6b7280', fontSize: 13, margin: 0, fontWeight: 500 }}>{member.isOnline ? "Online" : "Away"}</p>
-                                                                </div>
-                                                                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                                                                    {isAdmin && (
-                                                                        <span style={{ background: 'rgba(167,139,250,0.15)', color: '#a78bfa', borderRadius: 6, padding: '4px 8px', fontSize: 11, fontWeight: 700, border: '1px solid rgba(167,139,250,0.3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Admin</span>
-                                                                    )}
-                                                                    {amIAdmin && !isMe && (
-                                                                        <div style={{ position: 'relative' }}>
-                                                                            <button onClick={(e) => { e.stopPropagation(); setActiveParticipantMenu(activeParticipantMenu === memberId ? null : memberId) }}
-                                                                                style={{ background: 'none', border: 'none', color: '#8696a0', cursor: 'pointer', padding: 4 }}>
-                                                                                <MoreVertical size={20} />
-                                                                            </button>
-                                                                            {activeParticipantMenu === memberId && (
-                                                                                <div style={{ position: 'absolute', right: 0, top: '100%', background: '#23233b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.3)', zIndex: 10, width: 120, overflow: 'hidden' }}>
-                                                                                    <button onClick={() => handleRemoveUser(memberId)}
-                                                                                        style={{ width: '100%', background: 'none', border: 'none', padding: '10px 12px', color: '#ef4444', fontSize: 13, fontWeight: 600, textAlign: 'left', cursor: 'pointer' }}
-                                                                                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.05)'}
-                                                                                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                                                                                        Remove user
-                                                                                    </button>
-                                                                                </div>
-                                                                            )}
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Footer Actions */}
-                                    <div style={{ background: '#1a1a2e', marginTop: 10, padding: 10 }}>
-                                        <button style={{ width: '100%', background: 'none', border: 'none', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 20, color: '#ef4444', cursor: 'pointer', fontSize: 16, fontWeight: 600, textAlign: 'left', transition: 'all 0.2s', borderRadius: 12 }}
-                                            onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.05)'}
-                                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                                            <Trash2 size={20} />
-                                            <span>{activeChat?.isGroupChat ? 'Exit group' : 'Block contact'}</span>
-                                        </button>
-                                    </div>
-                                </>
-                            ) : null}
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
+            {/* ── Chat Details Modal (Premium Theme) ── */}
+            {
+                showDetailsModal && (
+                    <div style={{ position: 'fixed', inset: 0, background: 'rgba(10,10,11,0.6)', backdropFilter: 'blur(12px)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        onClick={() => { setShowDetailsModal(false); setChatDetails(null) }}>
+                        <div style={{ background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 24, width: 450, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 80px rgba(0,0,0,0.6)' }}
+                            onClick={e => e.stopPropagation()}>
+
+                            {/* Modal Header */}
+                            <div style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 15, borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                                <button onClick={() => { setShowDetailsModal(false); setChatDetails(null) }}
+                                    style={{ background: 'none', border: 'none', color: '#8696a0', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                                    <X size={22} />
+                                </button>
+                                <span style={{ color: '#e9edef', fontSize: 18, fontWeight: 600 }}>{activeChat?.isGroupChat ? 'Group info' : 'Contact info'}</span>
+                            </div>
+
+                            {/* Modal Content Scrollable */}
+                            <div style={{ flex: 1, overflowY: 'auto', background: '#161625' }}>
+                                {detailsLoading ? (
+                                    <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <Loader2 size={32} className="animate-spin" color="#a78bfa" />
+                                    </div>
+                                ) : chatDetails ? (
+                                    <>
+                                        {/* Big Profile Pic Section */}
+                                        <div style={{ background: '#1a1a2e', padding: '28px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20 }}>
+                                            <div style={{ width: 200, height: 200, borderRadius: '50%', overflow: 'hidden', background: activeChat?.isGroupChat ? 'rgba(167,139,250,0.1)' : 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 10px 40px rgba(0,0,0,0.4)', border: '2px solid rgba(167,139,250,0.2)' }}>
+                                                {getChatAvatar(activeChat) ? (
+                                                    <img src={getChatAvatar(activeChat)!} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                                ) : (
+                                                    activeChat?.isGroupChat ? <Users size={100} color="#a78bfa" /> : <User size={100} color="#8696a0" />
+                                                )}
+                                            </div>
+                                            <div style={{ textAlign: 'center' }}>
+                                                <h2 style={{ color: '#fff', fontSize: 24, fontWeight: 700, margin: 0, letterSpacing: '-0.02em' }}>{chatDetails.chatName || chatDetails.user?.username}</h2>
+                                                {activeChat?.isGroupChat && (
+                                                    <p style={{ color: '#a78bfa', fontSize: 16, marginTop: 4, fontWeight: 500 }}>Group • {chatDetails.totalMembers} members</p>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Description / Status Section */}
+                                        <div style={{ background: '#1a1a2e', marginTop: 10, padding: '20px' }}>
+                                            <label style={{ display: 'block', color: '#a78bfa', fontSize: 13, fontWeight: 700, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{activeChat?.isGroupChat ? 'Description' : 'About'}</label>
+                                            <p style={{ color: '#e9edef', fontSize: 16, margin: 0, lineHeight: 1.6 }}>
+                                                {chatDetails.groupDescription || (activeChat?.isGroupChat ? "No description provided." : "Hey there! I am using this chatapp.")}
+                                            </p>
+                                            <p style={{ color: '#6b7280', fontSize: 13, marginTop: 12 }}>
+                                                Created {new Date(chatDetails.createdAt).toLocaleDateString()}
+                                            </p>
+                                        </div>
+
+                                        {/* Members Section (Groups Only) */}
+                                        {activeChat?.isGroupChat && (
+                                            <div style={{ background: '#1a1a2e', marginTop: 10, paddingBottom: 20 }}>
+                                                <div style={{ padding: '20px 20px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <label style={{ color: '#a78bfa', fontSize: 13, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{chatDetails.totalMembers} participants</label>
+                                                    <Search size={18} color="#6b7280" />
+                                                </div>
+                                                <div>
+                                                    {chatDetails.members?.map((member: any) => {
+                                                        const memberId = (member._id || member.id || member?.id)?.toString();
+                                                        const currentUserId = (user?._id || user?.id || user?.uid)?.toString();
+                                                        const adminId = (chatDetails.groupAdmin?._id || chatDetails.groupAdmin?.id || chatDetails.groupAdmin)?.toString();
+                                                        const isMe = memberId === currentUserId;
+                                                        const isAdmin = memberId === adminId;
+                                                        const amIAdmin = currentUserId === adminId;
+
+                                                        return (
+                                                            <div key={memberId} style={{ display: 'flex', alignItems: 'center', gap: 15, padding: '12px 20px', cursor: 'pointer', transition: 'background 0.2s' }}
+                                                                onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                                                                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                                                                <div style={{ width: 44, height: 44, borderRadius: '50%', overflow: 'hidden', background: 'rgba(255,255,255,0.05)', flexShrink: 0, border: '1px solid rgba(255,255,255,0.1)' }}>
+                                                                    {member.profile_picture ? <img src={member.profile_picture} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <User size={22} color="#6b7280" style={{ margin: 11 }} />}
+                                                                </div>
+                                                                <div style={{ flex: 1, borderBottom: '1px solid rgba(255,255,255,0.03)', paddingBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                                    <div>
+                                                                        <p style={{ color: '#fff', fontSize: 16, fontWeight: 600, margin: 0 }}>{member.username} {isMe && "(You)"}</p>
+                                                                        <p style={{ color: member.isOnline ? '#22c55e' : '#6b7280', fontSize: 13, margin: 0, fontWeight: 500 }}>{member.isOnline ? "Online" : "Away"}</p>
+                                                                    </div>
+                                                                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                                                        {isAdmin && (
+                                                                            <span style={{ background: 'rgba(167,139,250,0.15)', color: '#a78bfa', borderRadius: 6, padding: '4px 8px', fontSize: 11, fontWeight: 700, border: '1px solid rgba(167,139,250,0.3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Admin</span>
+                                                                        )}
+                                                                        {amIAdmin && !isMe && (
+                                                                            <div style={{ position: 'relative' }}>
+                                                                                <button onClick={(e) => { e.stopPropagation(); setActiveParticipantMenu(activeParticipantMenu === memberId ? null : memberId) }}
+                                                                                    style={{ background: 'none', border: 'none', color: '#8696a0', cursor: 'pointer', padding: 4 }}>
+                                                                                    <MoreVertical size={20} />
+                                                                                </button>
+                                                                                {activeParticipantMenu === memberId && (
+                                                                                    <div style={{ position: 'absolute', right: 0, top: '100%', background: '#23233b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.3)', zIndex: 10, width: 120, overflow: 'hidden' }}>
+                                                                                        <button onClick={() => handleRemoveUser(memberId)}
+                                                                                            style={{ width: '100%', background: 'none', border: 'none', padding: '10px 12px', color: '#ef4444', fontSize: 13, fontWeight: 600, textAlign: 'left', cursor: 'pointer' }}
+                                                                                            onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.05)'}
+                                                                                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                                                                                            Remove user
+                                                                                        </button>
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Footer Actions */}
+                                        <div style={{ background: '#1a1a2e', marginTop: 10, padding: 10 }}>
+                                            <button style={{ width: '100%', background: 'none', border: 'none', padding: '18px 20px', display: 'flex', alignItems: 'center', gap: 20, color: '#ef4444', cursor: 'pointer', fontSize: 16, fontWeight: 600, textAlign: 'left', transition: 'all 0.2s', borderRadius: 12 }}
+                                                onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.05)'}
+                                                onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                                                <Trash2 size={20} />
+                                                <span>{activeChat?.isGroupChat ? 'Exit group' : 'Block contact'}</span>
+                                            </button>
+                                        </div>
+                                    </>
+                                ) : null}
+                            </div>
+                        </div>
+                    </div>
+                )
+            }
         </>
     );
 }

@@ -4,10 +4,12 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Loader2, Lock, Mail, CheckCircle2, AlertCircle } from 'lucide-react'
-import { loginUser, getMe } from '@/backend/login'
+import { loginUser } from '@/backend/login'
+import { useAuth } from '@/context/AuthContext'
 
 export default function LoginPage() {
   const router = useRouter()
+  const { user, login, loading: authLoading } = useAuth()
   const [formData, setFormData] = useState({
     email: '',
     password: ''
@@ -18,19 +20,10 @@ export default function LoginPage() {
   const [success, setSuccess] = useState<string | null>(null)
 
   useEffect(() => {
-    // Check if user is already logged in via getMe
-    const checkLogin = async () => {
-      try {
-        const data = await getMe()
-        if (data.success) {
-          router.push('/home')
-        }
-      } catch (err) {
-        // Not logged in, stay on login page
-      }
+    if (user && !authLoading) {
+      router.push('/home')
     }
-    checkLogin()
-  }, [router])
+  }, [user, authLoading, router])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -45,13 +38,10 @@ export default function LoginPage() {
       if (data && data.success) {
         // We capture the token for the socket handshake (middleware expects it in auth.token)
         const token = data.token || data.accessToken || data.jwt || (data.data && (data.data.token || data.data.accessToken));
-        if (token) {
-          localStorage.setItem('token', token)
-        }
+        console.log("Login success. Detected token:", !!token)
+
+        login(data.user, token || '')
         setSuccess('Login successful! Redirecting...')
-        setTimeout(() => {
-          router.push('/home')
-        }, 1000)
       } else {
         setError(data?.message || 'Invalid email or password.')
       }

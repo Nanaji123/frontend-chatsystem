@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
     Plus, Search, Filter, Calendar, Clock,
@@ -8,8 +8,8 @@ import {
     AlertCircle, ChevronLeft, Loader2, Layout,
     Tag, Flag, Edit3, X
 } from 'lucide-react'
-import { getMe } from '@/backend/login'
 import { getAllTasks, addTask, updateTask, deleteTask, markAsCompleted } from '@/backend/tasks'
+import { useAuth } from '@/context/AuthContext'
 
 interface Task {
     _id: string;
@@ -126,9 +126,10 @@ const TaskCard = ({
 
 export default function TasksPage() {
     const router = useRouter()
-    const [user, setUser] = useState<any>(null)
+    const { user, loading: authLoading } = useAuth()
     const [tasks, setTasks] = useState<Task[]>([])
     const [loading, setLoading] = useState(true)
+    const hasFetched = useRef(false)
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [editingTask, setEditingTask] = useState<Task | null>(null)
     const [searchQuery, setSearchQuery] = useState('')
@@ -147,18 +148,11 @@ export default function TasksPage() {
     const [submitting, setSubmitting] = useState(false)
 
     useEffect(() => {
-        fetchUser()
-        fetchTasks()
-    }, [])
-
-    const fetchUser = async () => {
-        const data = await getMe()
-        if (data.success) {
-            setUser(data.user)
-        } else {
-            router.push('/')
+        if (!authLoading && user && !hasFetched.current) {
+            hasFetched.current = true
+            fetchTasks()
         }
-    }
+    }, [user, authLoading])
 
     const fetchTasks = async () => {
         try {

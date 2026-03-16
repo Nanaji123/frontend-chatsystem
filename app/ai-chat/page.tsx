@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { getMe } from '@/backend/login'
+import { useAuth } from '@/context/AuthContext'
 import { geminiChat, getAIChats, getAIChatDetails, createAIChat, uploadPDF, deleteAIChat } from '@/backend/ai'
 import mermaid from 'mermaid'
 
@@ -201,7 +201,7 @@ interface ChatSession {
 
 export default function AIChatPage() {
     const router = useRouter()
-    const [user, setUser] = useState<any>(null)
+    const { user, loading: authLoading } = useAuth()
     const [chats, setChats] = useState<ChatSession[]>([])
     const [currentChatId, setCurrentChatId] = useState<string | null>(null)
     const [messages, setMessages] = useState<Message[]>([])
@@ -213,6 +213,7 @@ export default function AIChatPage() {
     const [attachedFile, setAttachedFile] = useState<{ name: string, text: string } | null>(null)
     const [isUploading, setIsUploading] = useState(false)
     const [currentPersona, setCurrentPersona] = useState<string | null>(null)
+    const hasFetched = useRef(false)
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -307,9 +308,11 @@ export default function AIChatPage() {
 
     ]
     useEffect(() => {
-        fetchUser()
-        loadHistory()
-    }, [])
+        if (!authLoading && user && !hasFetched.current) {
+            hasFetched.current = true
+            loadHistory()
+        }
+    }, [user, authLoading])
 
     useEffect(() => {
         if (currentChatId) {
@@ -321,14 +324,6 @@ export default function AIChatPage() {
         scrollToBottom()
     }, [messages, isTyping])
 
-    const fetchUser = async () => {
-        const data = await getMe()
-        if (data.success) {
-            setUser(data.user)
-        } else {
-            router.push('/')
-        }
-    }
 
     const loadHistory = async () => {
         try {
@@ -528,10 +523,10 @@ export default function AIChatPage() {
                         <span className="text-xs font-bold uppercase tracking-widest">Recent Chats</span>
                     </div>
                     {chats.map((session) => (
-                        <button
+                        <div
                             key={session.id}
                             onClick={() => setCurrentChatId(session.id)}
-                            className={`w-full text-left px-4 py-3 rounded-xl transition-all group relative overflow-hidden ${currentChatId === session.id
+                            className={`w-full text-left px-4 py-3 rounded-xl transition-all group relative overflow-hidden cursor-pointer ${currentChatId === session.id
                                 ? 'bg-white/10 border border-white/10 text-white'
                                 : 'hover:bg-white/5 text-gray-400 border border-transparent'
                                 }`}
@@ -550,7 +545,7 @@ export default function AIChatPage() {
                             {currentChatId === session.id && (
                                 <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-purple-500 rounded-r-full"></div>
                             )}
-                        </button>
+                        </div>
                     ))}
                 </div>
 

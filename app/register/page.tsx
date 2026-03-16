@@ -4,10 +4,13 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Loader2, Lock, Mail, User, CheckCircle2, AlertCircle, ArrowLeft } from 'lucide-react'
-import { registerUser } from '@/backend/login'
+import { registerUser, getMe } from '@/backend/login'
+import { useAuth } from '@/context/AuthContext'
+import { useEffect } from 'react'
 
 export default function RegisterPage() {
     const router = useRouter()
+    const { user, loading: authLoading } = useAuth()
     const [formData, setFormData] = useState({
         email: '',
         password: '',
@@ -18,6 +21,12 @@ export default function RegisterPage() {
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
     const [success, setSuccess] = useState<string | null>(null)
+
+    useEffect(() => {
+        if (user && !authLoading) {
+            router.push('/home')
+        }
+    }, [user, authLoading, router])
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
